@@ -1,0 +1,48 @@
+{
+  "name": "employee-timetracker",
+  "version": "1.0.0",
+  "description": "Employee TimeTracker and Monitoring Agent",
+  "author": "TimeChamp",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "dist": "electron-builder --win"
+  },
+  "dependencies": {
+    "active-win": "^7.7.2",
+    "axios": "^1.13.5",
+    "screenshot-desktop": "^1.15.3",
+    "uiohook-napi": "^1.5.4"
+  },
+  "devDependencies": {
+    "dotenv": "^17.3.1",
+    "electron": "^40.6.0",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.employee.tracker",
+    "productName": "TimeTracker Agent",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "requestedExecutionLevel": "asInvoker",
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "runAfterFinish": true
+    }
+  }
+}
