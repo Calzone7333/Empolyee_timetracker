@@ -137,6 +137,8 @@ function App({ dynamicData }) {
   const [activityData, setActivityData] = useState([]);
   const [recordings, setRecordings] = useState([]);
   const [showClaimModal, setShowClaimModal] = useState(false);
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [userToEdit, setUserToEdit] = useState(null);
   const [manualClaims, setManualClaims] = useState([]);
   const [newClaim, setNewClaim] = useState({ date: '', duration: '', reason: '' });
 
@@ -1924,7 +1926,7 @@ function App({ dynamicData }) {
                       {section.shots.map((shot, i) => {
                         const isReal = typeof shot === 'object';
                         const timeLabel = isReal ? shot.time : shot;
-                        const imageUrl = isReal ? (shot.url.startsWith('http') ? shot.url : `http://103.181.108.248:8084${shot.url}`) : `https://picsum.photos/id/${(idx * 15) + i + 25}/400/225`;
+                        const imageUrl = isReal ? (shot.url.startsWith('http') ? shot.url : `http://103.181.108.248${shot.url}`) : `https://picsum.photos/id/${(idx * 15) + i + 25}/400/225`;
 
                         return (
                           <div className="screenshot-card" key={i} style={{ width: '100%', cursor: 'pointer' }} onClick={() => window.open(imageUrl, '_blank')}>
@@ -2149,11 +2151,24 @@ function App({ dynamicData }) {
                         <span style={{ fontSize: '13px', color: '#546e7a' }}>Frequency</span>
                         <span className="config-desc">How often to capture a screenshot</span>
                       </div>
-                      <select className="config-search-input" style={{ width: '150px' }}>
-                        <option>Every 1 Minute</option>
-                        <option>Every 5 Minutes</option>
-                        <option>Every 10 Minutes</option>
-                        <option>Random (3/hour)</option>
+                      <select
+                        className="config-search-input"
+                        style={{ width: '150px' }}
+                        value={monitoringData?.user?.screenshotInterval ? `Every ${monitoringData.user.screenshotInterval / 60} Minutes` : 'Every 1 Minute'}
+                        onChange={async (e) => {
+                          const val = e.target.value.split(' ')[1];
+                          const seconds = parseInt(val) * 60;
+                          const updated = await updateUser(selectedUserId, { screenshotInterval: seconds });
+                          if (updated) {
+                            setUsersList(usersList.map(u => u.id === updated.id ? updated : u));
+                            setMonitoringData({ ...monitoringData, user: updated });
+                          }
+                        }}
+                      >
+                        <option value="Every 1 Minutes">Every 1 Minute</option>
+                        <option value="Every 5 Minutes">Every 5 Minutes</option>
+                        <option value="Every 10 Minutes">Every 10 Minutes</option>
+                        <option value="Every 30 Minutes">Every 30 Minutes</option>
                       </select>
                     </div>
                     <Switch label="Blur Screenshots" description="Apply privacy blur to captured images" />
@@ -2222,7 +2237,16 @@ function App({ dynamicData }) {
                             <td style={{ padding: '15px' }}><span style={{ background: '#e0f2f1', color: '#00897b', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600' }}>Active</span></td>
                             <td style={{ padding: '15px' }}>
                               <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                <span style={{ color: '#26a69a', fontWeight: '500', cursor: 'pointer' }}>Edit</span>
+                                <span
+                                  style={{ color: '#26a69a', fontWeight: '500', cursor: 'pointer' }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setUserToEdit({ ...user });
+                                    setShowEditUserModal(true);
+                                  }}
+                                >
+                                  Edit
+                                </span>
                                 <span
                                   style={{ color: '#ef5350', fontWeight: '500', cursor: 'pointer' }}
                                   onClick={async (e) => {
@@ -2466,6 +2490,53 @@ function App({ dynamicData }) {
                 >
                   Submit Claim
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditUserModal && userToEdit && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: 'white', width: '500px', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ padding: '20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8f9fa' }}>
+              <h3 style={{ margin: 0, fontSize: '16px' }}>Edit User: {userToEdit.userName}</h3>
+              <X size={20} color="#90a4ae" style={{ cursor: 'pointer' }} onClick={() => setShowEditUserModal(false)} />
+            </div>
+            <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: '#546e7a', marginBottom: '5px' }}>Full Name</label>
+                <input type="text" value={userToEdit.name || ''} onChange={(e) => setUserToEdit({ ...userToEdit, name: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: '#546e7a', marginBottom: '5px' }}>Email</label>
+                <input type="email" value={userToEdit.email || ''} onChange={(e) => setUserToEdit({ ...userToEdit, email: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: '#546e7a', marginBottom: '5px' }}>Employee ID</label>
+                <input type="text" value={userToEdit.employeeId || ''} onChange={(e) => setUserToEdit({ ...userToEdit, employeeId: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: '#546e7a', marginBottom: '5px' }}>Role</label>
+                <input type="text" value={userToEdit.role || ''} onChange={(e) => setUserToEdit({ ...userToEdit, role: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: '#546e7a', marginBottom: '5px' }}>Department</label>
+                <input type="text" value={userToEdit.department || ''} onChange={(e) => setUserToEdit({ ...userToEdit, department: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: '#546e7a', marginBottom: '5px' }}>Team</label>
+                <input type="text" value={userToEdit.team || ''} onChange={(e) => setUserToEdit({ ...userToEdit, team: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }} />
+              </div>
+              <div style={{ gridColumn: 'span 2', display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid #ddd', background: 'white' }} onClick={() => setShowEditUserModal(false)}>Cancel</button>
+                <button style={{ padding: '8px 16px', borderRadius: '4px', border: 'none', background: '#26a69a', color: 'white' }} onClick={async () => {
+                  const updated = await updateUser(userToEdit.id, userToEdit);
+                  if (updated) {
+                    setUsersList(usersList.map(u => u.id === updated.id ? updated : u));
+                    setShowEditUserModal(false);
+                  }
+                }}>Save Changes</button>
               </div>
             </div>
           </div>

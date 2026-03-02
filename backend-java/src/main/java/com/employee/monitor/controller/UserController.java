@@ -81,4 +81,29 @@ public class UserController {
             return response;
         }
     }
+
+    @PutMapping("/{id}")
+    public User updateUser(@PathVariable Long id, @RequestBody User userDetails) {
+        return userRepository.findById(id).map(user -> {
+            if (userDetails.getName() != null)
+                user.setName(userDetails.getName());
+            if (userDetails.getUserName() != null)
+                user.setUserName(userDetails.getUserName());
+            if (userDetails.getEmail() != null)
+                user.setEmail(userDetails.getEmail());
+            if (userDetails.getEmployeeId() != null)
+                user.setEmployeeId(userDetails.getEmployeeId());
+            if (userDetails.getRole() != null)
+                user.setRole(userDetails.getRole());
+            if (userDetails.getDepartment() != null)
+                user.setDepartment(userDetails.getDepartment());
+            if (userDetails.getTeam() != null)
+                user.setTeam(userDetails.getTeam());
+            if (userDetails.getStatus() != null)
+                user.setStatus(userDetails.getStatus());
+            if (userDetails.getScreenshotInterval() != null)
+                user.setScreenshotInterval(userDetails.getScreenshotInterval());
+            return userRepository.save(user);
+        }).orElse(null);
+    }
 }

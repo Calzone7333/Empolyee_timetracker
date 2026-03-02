@@ -21,8 +21,9 @@ let currentMouseClicks = 0;
 
 let config = {};
 let userId = null;
+let screenshotInterval = 60000; // Default 1 minute
 // You can change your server url if needed or pass via config
-let SERVER_URL = 'http://103.181.108.248:8084/api';
+let SERVER_URL = 'http://103.181.108.248/api';
 const CONFIG_FILE = path.join(app.getPath('userData'), 'agent-config.json');
 
 // --- Config Handling ---
@@ -167,8 +168,19 @@ const register = async () => {
             } catch (retryErr) {
                 console.error('Retry registration failed');
             }
-        } else {
-            console.error('No server found for registration.');
+        }
+    }
+
+    // Fetch user settings after registration/load
+    if (userId) {
+        try {
+            const settingsRes = await axios.get(`${SERVER_URL}/users/${userId}`);
+            if (settingsRes.data && settingsRes.data.screenshotInterval) {
+                screenshotInterval = settingsRes.data.screenshotInterval * 1000;
+                console.log(`[AGENT] Screenshot interval updated to ${screenshotInterval}ms`);
+            }
+        } catch (e) {
+            console.error('[AGENT] Failed to fetch settings:', e.message);
         }
     }
 };
@@ -300,9 +312,9 @@ const monitor = async () => {
             axios.post(`${SERVER_URL}/activity/track`, bgActivity).catch(() => null);
         }
 
-        // Screenshot every 1 minute (60000 ms) for quicker testing and visibility
+        // Screenshot based on saved interval
         const now = Date.now();
-        if (now - lastScreenshotTime >= 60000) {
+        if (now - lastScreenshotTime >= screenshotInterval) {
             const imgBase64 = takeScreenshot();
             if (imgBase64) {
                 axios.post(`${SERVER_URL}/screenshots/upload`, {

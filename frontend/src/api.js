@@ -1,5 +1,5 @@
 // API Configuration
-const API_BASE_URL = `http://103.181.108.248:8084/api`;
+const API_BASE_URL = `http://103.181.108.248/api`;
 
 // User Management APIs
 export const registerUser = async (userData) => {
@@ -44,6 +44,20 @@ export const getUserActivity = async (userId, date, range) => {
         return await response.json();
     } catch (error) {
         console.error('Error fetching user activity:', error);
+        return null;
+    }
+};
+
+export const updateUser = async (id, userData) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(userData)
+        });
+        return await response.json();
+    } catch (error) {
+        console.error('Error updating user:', error);
         return null;
     }
 };
