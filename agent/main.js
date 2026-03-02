@@ -22,7 +22,7 @@ let currentMouseClicks = 0;
 let config = {};
 let userId = null;
 // You can change your server url if needed or pass via config
-let SERVER_URL = 'http://localhost:8084/api';
+let SERVER_URL = 'http://103.181.108.248:8084/api';
 const CONFIG_FILE = path.join(app.getPath('userData'), 'agent-config.json');
 
 // --- Config Handling ---

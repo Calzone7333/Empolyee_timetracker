@@ -1,5 +1,5 @@
 // API Configuration
-const API_BASE_URL = `http://${window.location.hostname}:8084/api`;
+const API_BASE_URL = `http://103.181.108.248:8084/api`;
 
 // User Management APIs
 export const registerUser = async (userData) => {

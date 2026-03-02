@@ -103,4 +103,5 @@ target/
 # Project specific
 uploads/
 frontend/dist/
+frontend/release/
 agent/dist/

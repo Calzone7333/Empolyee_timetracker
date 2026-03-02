@@ -407,7 +407,7 @@ function App({ dynamicData }) {
 
     try {
       // Direct link to backend agent download
-      window.location.href = `http://${window.location.hostname}:8084/api/download-agent`;
+      window.location.href = `http://103.181.108.248:8084/api/download-agent`;
 
       // Give it a moment to trigger the browse download before changing UI state
       await new Promise(resolve => setTimeout(resolve, 3000));
@@ -1924,7 +1924,7 @@ function App({ dynamicData }) {
                       {section.shots.map((shot, i) => {
                         const isReal = typeof shot === 'object';
                         const timeLabel = isReal ? shot.time : shot;
-                        const imageUrl = isReal ? (shot.url.startsWith('http') ? shot.url : `http://${window.location.hostname}:8084${shot.url}`) : `https://picsum.photos/id/${(idx * 15) + i + 25}/400/225`;
+                        const imageUrl = isReal ? (shot.url.startsWith('http') ? shot.url : `http://103.181.108.248:8084${shot.url}`) : `https://picsum.photos/id/${(idx * 15) + i + 25}/400/225`;
 
                         return (
                           <div className="screenshot-card" key={i} style={{ width: '100%', cursor: 'pointer' }} onClick={() => window.open(imageUrl, '_blank')}>

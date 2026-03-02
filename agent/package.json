@@ -6,8 +6,9 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win",
-    "dist": "electron-builder --win"
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "dist": "electron-builder --win --mac"
   },
   "dependencies": {
     "active-win": "^7.7.2",
@@ -21,18 +22,24 @@
     "electron-builder": "^26.8.1"
   },
   "build": {
-    "appId": "com.employee.tracker",
+    "appId": "com.employee.tracker.agent",
     "productName": "TimeTracker Agent",
     "directories": {
       "output": "dist"
     },
     "files": [
       "main.js",
+      "agent.js",
       "preload.js",
       "index.html",
       "package.json",
       "node_modules/**/*"
     ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity",
+      "icon": "assets/icon.png"
+    },
     "win": {
       "target": "nsis",
       "requestedExecutionLevel": "asInvoker",

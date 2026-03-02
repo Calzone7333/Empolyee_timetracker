@@ -12,7 +12,7 @@ const CONFIG_FILE = path.join(basePath, 'agent-config.json');
 // Configuration
 let userId = null;
 let config = {};
-let SERVER_URL = 'http://127.0.0.1:8084/api'; // Force IPv4 to avoid ECONNREFUSED ::1 issues
+let SERVER_URL = 'http://103.181.108.248:8084/api'; // Force IPv4 to avoid ECONNREFUSED ::1 issues
 
 // Helper: Load/Save Config
 const loadConfig = () => {
