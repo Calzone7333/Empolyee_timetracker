@@ -60,4 +60,7 @@ jobs:
             # Start new backend in background
             cd ~/apps/Empolyee_timetracker/backend-java/
             nohup java -jar monitor-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
+            
+            # Restart Apache2
+            echo "${{ secrets.SERVER_PASSWORD }}" | sudo -S systemctl restart apache2
           EOF
