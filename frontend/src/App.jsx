@@ -170,20 +170,34 @@ function App({ dynamicData }) {
       const formattedDate = selectedDate.getFullYear() + '-' + String(selectedDate.getMonth() + 1).padStart(2, '0') + '-' + String(selectedDate.getDate()).padStart(2, '0');
       const rangeParam = activeRange.toLowerCase();
 
-      const activity = await getUserActivity(currentId, formattedDate, rangeParam);
-      const apps = await getApplicationsUsed(currentId, formattedDate, rangeParam);
-      const websites = await getWebsitesVisited(currentId, formattedDate, rangeParam);
-      const recentScreenshots = await fetchScreenshots(currentId, formattedDate);
-      const stats = await fetchActivityLevels(currentId, formattedDate, rangeParam);
-      const claims = await getTimeClaims(currentId);
-      setManualClaims(claims);
+      // Parallelize all heavy dashboard endpoints
+      const [
+        activity,
+        apps,
+        websites,
+        recentScreenshots,
+        stats,
+        claims,
+        yesterdayActivity,
+        weekActivity
+      ] = await Promise.all([
+        getUserActivity(currentId, formattedDate, rangeParam),
+        getApplicationsUsed(currentId, formattedDate, rangeParam),
+        getWebsitesVisited(currentId, formattedDate, rangeParam),
+        fetchScreenshots(currentId, formattedDate),
+        fetchActivityLevels(currentId, formattedDate, rangeParam),
+        getTimeClaims(currentId),
 
-      // Comparative data for Trends
-      const yesterdayObj = new Date(selectedDate);
-      yesterdayObj.setDate(yesterdayObj.getDate() - 1);
-      const yesterdayStr = yesterdayObj.toISOString().split('T')[0];
-      const yesterdayActivity = await getUserActivity(currentId, yesterdayStr);
-      const weekActivity = await getUserActivity(currentId, formattedDate, 'week');
+        // Comparative data for Trends
+        getUserActivity(currentId, (() => {
+          const y = new Date(selectedDate);
+          y.setDate(y.getDate() - 1);
+          return y.toISOString().split('T')[0];
+        })()),
+        getUserActivity(currentId, formattedDate, 'week')
+      ]);
+
+      setManualClaims(claims);
 
       console.log('Fetching for ID:', currentId);
       const currentUser = realUsers.find(u => u.id == currentId);
