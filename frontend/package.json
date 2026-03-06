@@ -2,6 +2,8 @@
   "name": "timetracker-frontend",
   "private": true,
   "version": "0.1.0",
+  "description": "Employee TimeTracker Admin Dashboard",
+  "author": "TimeChamp",
   "type": "module",
   "main": "electron-main.cjs",
   "scripts": {
@@ -46,7 +48,7 @@
       "package.json"
     ],
     "mac": {
-      "target": "dmg",
+      "target": "zip",
       "category": "public.app-category.business"
     },
     "win": {

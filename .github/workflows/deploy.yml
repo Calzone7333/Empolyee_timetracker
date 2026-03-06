@@ -1,0 +1,62 @@
+name: Deploy Backend Only (Spring Boot)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ Checkout repository
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      ############################
+      # 2️⃣ Build Backend (Spring Boot)
+      ############################
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: maven
+
+      - name: Build Spring Boot backend
+        run: |
+          cd backend-java
+          mvn clean package -DskipTests
+
+      ############################
+      # 3️⃣ Setup SSH for Deployment
+      ############################
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      ############################
+      # 4️⃣ Deploy Backend JAR
+      ############################
+      - name: Deploy Backend
+        run: |
+          rsync -avz --delete -e "ssh -p 19919 -o StrictHostKeyChecking=no" \
+          backend-java/target/monitor-0.0.1-SNAPSHOT.jar \
+          prakash@103.181.108.248:/apps/Empolyee_timetracker/backend-java/
+
+      ############################
+      # 5️⃣ Restart Backend Application
+      ############################
+      - name: Restart Backend
+        run: |
+          ssh -p 19919 -o StrictHostKeyChecking=no prakash@103.181.108.248 << 'EOF'
+            # Stop existing backend if running
+            pkill -f 'monitor-0.0.1-SNAPSHOT.jar' || true
+            
+            # Start new backend in background
+            cd /apps/Empolyee_timetracker/backend-java/
+            nohup java -jar monitor-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
+          EOF

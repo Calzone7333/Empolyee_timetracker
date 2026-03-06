@@ -44,7 +44,7 @@ public class ScreenshotController {
             Screenshot screenshot = new Screenshot();
             screenshot.setUserId(request.getUserId());
             screenshot.setFileName(fileName);
-            screenshot.setUrl("/uploads/" + fileName);
+            screenshot.setUrl("/api/uploads/" + fileName);
             screenshot.setTimestamp(LocalDateTime.now());
 
             screenshot = screenshotRepository.save(screenshot);
@@ -83,7 +83,13 @@ public class ScreenshotController {
 
             Map<String, Object> shotData = new HashMap<>();
             shotData.put("time", s.getTimestamp().format(timeFormatter));
-            shotData.put("url", s.getUrl());
+
+            String url = s.getUrl();
+            if (url != null && url.startsWith("/uploads/")) {
+                url = "/api" + url;
+            }
+            shotData.put("url", url);
+
             shotData.put("timestamp", s.getTimestamp().format(isoFormatter));
 
             grouped.computeIfAbsent(hourKey, k -> new ArrayList<>()).add(shotData);

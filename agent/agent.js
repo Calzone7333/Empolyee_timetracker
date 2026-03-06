@@ -4,15 +4,42 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 
+// --- Helpers ---
+const getIPAddress = () => {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (('IPv4' === iface.family || iface.family === 4) && !iface.internal) {
+                return iface.address;
+            }
+        }
+    }
+    return '127.0.0.1';
+};
+
+const getISTISOString = () => {
+    const d = new Date();
+    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+    const nd = new Date(utc + (3600000 * 5.5));
+    const pad = (n) => (n < 10 ? '0' + n : n);
+    return `${nd.getFullYear()}-${pad(nd.getMonth() + 1)}-${pad(nd.getDate())}T${pad(nd.getHours())}:${pad(nd.getMinutes())}:${pad(nd.getSeconds())}.000+05:30`;
+};
+
 // Fix for PKG / ESM compatibility
 const isPkg = typeof process.pkg !== 'undefined';
-const basePath = isPkg ? path.dirname(process.execPath) : process.cwd();
-const CONFIG_FILE = path.join(basePath, 'agent-config.json');
+// Use %APPDATA% if available, otherwise fallback to local dir
+const appDataPath = process.env.APPDATA || (process.platform === 'darwin' ? process.env.HOME + '/Library/Preferences' : process.env.HOME + '/.config');
+const CONFIG_FILE = path.join(appDataPath, 'employee-timetracker', 'agent-config.json');
+
+// Ensure directory exists
+if (!fs.existsSync(path.dirname(CONFIG_FILE))) {
+    fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
+}
 
 // Configuration
 let userId = null;
 let config = {};
-let SERVER_URL = 'http://103.181.108.248:8084/api'; // Force IPv4 to avoid ECONNREFUSED ::1 issues
+let SERVER_URL = 'http://103.181.108.248/api'; // Force IPv4 to avoid ECONNREFUSED ::1 issues
 
 // Helper: Load/Save Config
 const loadConfig = () => {
@@ -45,34 +72,42 @@ const saveConfig = (newConfig) => {
 const register = async () => {
     if (userId) return;
 
-    const computerName = os.hostname();
-    const userName = os.userInfo().username;
+    console.log('--------------------------------------------------');
+    console.log('Starting Agent Registration...');
 
-    console.log(`Registering new agent for ${userName} on ${computerName}...`);
+    const ip = getIPAddress();
+    const computerName = `${os.hostname()}_${ip}`;
+    const userName = os.userInfo().username;
+    const email = `${userName.toLowerCase().replace(/\s+/g, '.')}.${computerName.toLowerCase()}@internal.monitor`;
 
     try {
         const res = await axios.post(`${SERVER_URL}/users/register`, {
             computerName,
             userName,
-            email: `${userName}@${computerName}.local` // Fallback email
+            email
         });
 
         if (res.data.success) {
             console.log('Registered successfully! User ID:', res.data.user.id);
             saveConfig({ userId: res.data.user.id });
+        } else {
+            console.log('Registration response received but success was false.');
         }
     } catch (error) {
         if (error.response) {
-            console.error('Registration failed:', error.response.status, error.response.data);
-            // If backend says user exists but returns success inside data
+            console.error(`Registration failed [${error.response.status}]:`, JSON.stringify(error.response.data));
             if (error.response.data && error.response.data.success) {
-                console.log('Registered successfully (from error)! User ID:', error.response.data.user.id);
+                console.log('User already exists in database. ID retrieved:', error.response.data.user.id);
                 saveConfig({ userId: error.response.data.user.id });
             }
+        } else if (error.request) {
+            console.error('Registration failed: No response from server. Check your connection or SERVER_URL.');
+            console.error('Server URL attempted:', `${SERVER_URL}/users/register`);
         } else {
             console.error('Registration failed:', error.message);
         }
     }
+    console.log('--------------------------------------------------');
 };
 
 let lastScreenshotTime = 0;
@@ -154,15 +189,15 @@ const monitor = async () => {
             keyStrokes: Math.floor(Math.random() * 10),
             mouseClicks: Math.floor(Math.random() * 5),
             idleTime: 0,
-            timestamp: new Date().toISOString()
+            timestamp: getISTISOString()
         };
 
         await axios.post(`${SERVER_URL}/activity/track`, activityData);
         console.log(`[Activity] ${activityData.application}: ${activityData.website ? activityData.website.substring(0, 50) : ''}...`);
 
-        // --- 2. Track Screenshot (Every 60s) ---
+        // --- 2. Track Screenshot (Every 300s / 5 mins) ---
         const now = Date.now();
-        if (now - lastScreenshotTime >= 60000) { // 1 minute interval
+        if (now - lastScreenshotTime >= 300000) { // 5 minute interval
             console.log('Taking screenshot...');
             const imgBase64 = takeScreenshot();
 
@@ -170,7 +205,7 @@ const monitor = async () => {
                 await axios.post(`${SERVER_URL}/screenshots/upload`, {
                     userId,
                     imageBase64: imgBase64,
-                    timestamp: new Date().toISOString()
+                    timestamp: getISTISOString()
                 });
                 console.log('[Screenshot] Uploaded successfully');
             } else {

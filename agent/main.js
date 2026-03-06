@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, Tray } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, Tray, screen } = require('electron');
 const { execSync } = require('child_process');
 const axios = require('axios');
 const os = require('os');
@@ -6,6 +6,27 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const { uIOhook, UiohookKey } = require('uiohook-napi');
+
+// --- Helpers ---
+const getIPAddress = () => {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (('IPv4' === iface.family || iface.family === 4) && !iface.internal) {
+                return iface.address;
+            }
+        }
+    }
+    return '127.0.0.1';
+};
+
+const getISTISOString = () => {
+    const d = new Date();
+    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+    const nd = new Date(utc + (3600000 * 5.5));
+    const pad = (n) => (n < 10 ? '0' + n : n);
+    return `${nd.getFullYear()}-${pad(nd.getMonth() + 1)}-${pad(nd.getDate())}T${pad(nd.getHours())}:${pad(nd.getMinutes())}:${pad(nd.getSeconds())}.000+05:30`;
+};
 
 let mainWindow;
 let tray = null;
@@ -21,7 +42,7 @@ let currentMouseClicks = 0;
 
 let config = {};
 let userId = null;
-let screenshotInterval = 60000; // Default 1 minute
+let screenshotInterval = 300000; // Default 5 minutes
 // You can change your server url if needed or pass via config
 let SERVER_URL = 'http://103.181.108.248/api';
 const CONFIG_FILE = path.join(app.getPath('userData'), 'agent-config.json');
@@ -32,9 +53,16 @@ const loadConfig = () => {
         try {
             config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
             userId = config.userId;
-            if (config.serverUrl) SERVER_URL = config.serverUrl;
+            console.log(`[CONFIG] Loaded User ID: ${userId}`);
+            // Robust SERVER_URL check
+            // Removed dynamic SERVER_URL from config to strictly enforce cloud database.
         } catch (e) {
-            console.error('Error loading config:', e);
+            console.error('[CONFIG] Error loading config:', e);
+        }
+    } else {
+        console.log('[CONFIG] Config file not found, creating directory...');
+        if (!fs.existsSync(path.dirname(CONFIG_FILE))) {
+            fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
         }
     }
 };
@@ -42,10 +70,13 @@ const loadConfig = () => {
 const saveConfig = (newConfig) => {
     try {
         config = { ...config, ...newConfig };
+        if (!fs.existsSync(path.dirname(CONFIG_FILE))) {
+            fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
+        }
         fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
         userId = config.userId;
     } catch (e) {
-        console.error('Error saving config:', e.message);
+        console.error('[CONFIG] Error saving config:', e.message);
     }
 };
 
@@ -114,14 +145,16 @@ const register = async () => {
     let userName = 'Unknown-User';
 
     try {
-        computerName = os.hostname();
+        const ip = getIPAddress();
+        computerName = `${os.hostname()}_${ip}`;
         const userInfo = os.userInfo();
         userName = userInfo ? userInfo.username : (process.env.USERNAME || 'User');
     } catch (e) {
         console.error('Core OS info fetch failed:', e.message);
     }
 
-    console.log(`Registering agent: ${userName} @ ${computerName}`);
+    console.log('--------------------------------------------------');
+    console.log(`Starting registration for ${userName} on ${computerName}...`);
 
     const registrationData = {
         computerName,
@@ -129,55 +162,48 @@ const register = async () => {
         email: `${userName.toLowerCase().replace(/\s+/g, '.')}.${computerName.toLowerCase()}@internal.monitor`
     };
 
-    // 1. Try Localhost first (if on same machine)
-    const localUrl = 'http://localhost:8084/api';
-    try {
-        console.log(`Checking local server at ${localUrl}...`);
-        const res = await axios.post(`${localUrl}/users/register`, registrationData);
-        if (res.data.success && res.data.user) {
-            SERVER_URL = localUrl;
-            console.log("Registration successful via localhost. ID:", res.data.user.id);
-            saveConfig({ userId: res.data.user.id, serverUrl: SERVER_URL });
-            return;
-        }
-    } catch (err) {
-        console.log("Localhost server not found or refused.");
-    }
+    // Ensure SERVER_URL is standardized before sending
+    if (SERVER_URL.endsWith('/')) SERVER_URL = SERVER_URL.slice(0, -1);
+    if (!SERVER_URL.endsWith('/api')) SERVER_URL += '/api';
 
-    // 2. Try configured SERVER_URL
+    // 1. Try configured Cloud SERVER_URL first (Production default)
     try {
-        console.log(`Attempting registration at ${SERVER_URL}...`);
+        console.log(`[REG] Attempting registration at default server ${SERVER_URL}/users/register...`);
         const res = await axios.post(`${SERVER_URL}/users/register`, registrationData);
         if (res.data.success && res.data.user) {
-            console.log("Registration successful via configured URL. ID:", res.data.user.id);
+            console.log("[REG] Registration successful via Cloud URL. ID:", res.data.user.id);
             saveConfig({ userId: res.data.user.id });
             return;
+        } else {
+            console.log("[REG] Registration response received but success was false:", JSON.stringify(res.data));
         }
     } catch (error) {
-        console.log("Connection to default server failed. Finding server...");
-        const discoveredUrl = await autoDiscoverServerIP();
-        if (discoveredUrl) {
-            SERVER_URL = discoveredUrl;
-            console.log(`Discovered Server: ${SERVER_URL}`);
-
-            try {
-                const retryRes = await axios.post(`${SERVER_URL}/users/register`, registrationData);
-                if (retryRes.data.success && retryRes.data.user) {
-                    saveConfig({ userId: retryRes.data.user.id, serverUrl: SERVER_URL });
-                }
-            } catch (retryErr) {
-                console.error('Retry registration failed');
-            }
+        if (error.response) {
+            console.error(`[REG] Cloud server returned error [${error.response.status}]:`, JSON.stringify(error.response.data));
+        } else if (error.request) {
+            console.error('[REG] Cloud server unreachable. No response received.');
+        } else {
+            console.error('[REG] Registration setup error:', error.message);
         }
     }
+
+    // --- Localhost fallback removed to enforce production use ---
+
+    // Final Fallback: Keep trying production URL
+    if (!userId) {
+        console.error('[REG] Registration failed at production server. Retrying soon...');
+    }
+    console.log('--------------------------------------------------');
 
     // Fetch user settings after registration/load
     if (userId) {
         try {
+            console.log(`[AGENT] Fetching settings from ${SERVER_URL}/users/${userId}...`);
             const settingsRes = await axios.get(`${SERVER_URL}/users/${userId}`);
             if (settingsRes.data && settingsRes.data.screenshotInterval) {
-                screenshotInterval = settingsRes.data.screenshotInterval * 1000;
-                console.log(`[AGENT] Screenshot interval updated to ${screenshotInterval}ms`);
+                // Ignore backend and lock to 5 minutes
+                screenshotInterval = 300000;
+                console.log(`[AGENT] Screenshot interval locked to ${screenshotInterval}ms`);
             }
         } catch (e) {
             console.error('[AGENT] Failed to fetch settings:', e.message);
@@ -285,7 +311,7 @@ const monitor = async () => {
             keyStrokes: keys,
             mouseClicks: clicks,
             idleTime: 0,
-            timestamp: new Date().toISOString()
+            timestamp: getISTISOString()
         };
 
         axios.post(`${SERVER_URL}/activity/track`, activityData)
@@ -307,7 +333,7 @@ const monitor = async () => {
                 keyStrokes: 0,
                 mouseClicks: 0,
                 idleTime: 10, // Mark as idle since it's in background
-                timestamp: new Date().toISOString()
+                timestamp: getISTISOString()
             };
             axios.post(`${SERVER_URL}/activity/track`, bgActivity).catch(() => null);
         }
@@ -320,7 +346,7 @@ const monitor = async () => {
                 axios.post(`${SERVER_URL}/screenshots/upload`, {
                     userId,
                     imageBase64: imgBase64,
-                    timestamp: new Date().toISOString()
+                    timestamp: getISTISOString()
                 }).catch(() => null);
             }
             lastScreenshotTime = now;
@@ -341,10 +367,23 @@ uIOhook.on('mousedown', (e) => {
 
 // --- App Lifecycle ---
 function createWindow() {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width, height } = primaryDisplay.workAreaSize;
+
+    const winWidth = 240;
+    const winHeight = 140;
+    const marginX = 20;
+    const marginY = 20;
+
     mainWindow = new BrowserWindow({
-        width: 450,
-        height: 600,
-        resizable: true,
+        width: winWidth,
+        height: winHeight,
+        x: width - winWidth - marginX,
+        y: height - winHeight - marginY,
+        resizable: true, // Allow slight resizing if user desires, but mostly fixed by default
+        alwaysOnTop: true,
+        frame: false,
+        transparent: true,
         show: false,
         webPreferences: {
             nodeIntegration: false,
@@ -374,10 +413,11 @@ ipcMain.handle('get-status', () => {
     return {
         isTracking,
         trackingSeconds,
-        checkInTime: checkInTime ? checkInTime.toISOString() : null,
-        computerName: os.hostname(),
+        checkInTime: checkInTime ? getISTISOString() : null,
+        computerName: `${os.hostname()}_${getIPAddress()}`,
         userName: os.userInfo() ? os.userInfo().username : 'Unknown',
-        userId: userId || 'Not Registered'
+        userId: userId || 'Not Registered',
+        serverUrl: SERVER_URL
     };
 });
 
@@ -439,6 +479,27 @@ ipcMain.on('stop-tracking', () => {
     console.log("Tracking stopped.");
 });
 
+ipcMain.handle('test-connection', async () => {
+    try {
+        console.log(`[TEST] Testing connection to ${SERVER_URL}/users/register...`);
+        const registrationData = {
+            computerName: `${os.hostname()}_TEST`,
+            userName: 'TestUser',
+            email: 'test@example.com'
+        };
+        const res = await axios.post(`${SERVER_URL}/users/register`, registrationData, { timeout: 8000 });
+        return {
+            success: true,
+            message: 'Connected successfully!',
+            details: `Status: ${res.status}, User ID: ${res.data.user?.id || 'N/A'}`
+        };
+    } catch (error) {
+        let msg = error.message;
+        if (error.response) msg = `Server Error: ${error.response.status} - ${JSON.stringify(error.response.data)}`;
+        else if (error.request) msg = 'No response from server. Check firewall or internet.';
+        return { success: false, message: 'Connection Failed', details: msg };
+    }
+});
 
 app.whenReady().then(async () => {
     loadConfig();
