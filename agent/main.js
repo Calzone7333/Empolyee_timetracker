@@ -257,26 +257,37 @@ const activeWindow = async () => {
 
 const takeScreenshot = () => {
     try {
+        // Using System.Windows.Forms.SystemInformation::VirtualScreen covers ALL monitors and is more DPI-resilient
         const script = `
             Add-Type -AssemblyName System.Windows.Forms
             Add-Type -AssemblyName System.Drawing
-            $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-            $bitmap = New-Object System.Drawing.Bitmap $screen.Bounds.Width, $screen.Bounds.Height
+            $rect = [System.Windows.Forms.SystemInformation]::VirtualScreen
+            $width = $rect.Width
+            $height = $rect.Height
+            $left = $rect.Left
+            $top = $rect.Top
+            
+            $bitmap = New-Object System.Drawing.Bitmap $width, $height
             $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-            $graphics.CopyFromScreen($screen.Bounds.X, $screen.Bounds.Y, 0, 0, $bitmap.Size)
-            $stream = New-Object System.IO.MemoryStream
-            $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Jpeg)
-            [Convert]::ToBase64String($stream.ToArray())
+            $graphics.CopyFromScreen($left, $top, 0, 0, $bitmap.Size)
+            
+            $ms = New-Object System.IO.MemoryStream
+            $bitmap.Save($ms, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+            $bitmap.Dispose()
+            $graphics.Dispose()
+            
+            [Convert]::ToBase64String($ms.ToArray())
         `;
-        const command = `powershell -NoProfile -ExecutionPolicy Bypass -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ';')}"`;
+        const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
+        const command = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedScript}`;
         const base64 = execSync(command, {
             encoding: 'utf8',
             stdio: 'pipe',
-            maxBuffer: 1024 * 1024 * 10
+            maxBuffer: 1024 * 1024 * 20 // 20MB buffer for large screenshots
         });
         return base64 ? base64.trim() : null;
     } catch (e) {
-        console.error('Screenshot failed. Continuing...');
+        console.error('[AGENT] Screenshot failed:', e.message);
         return null;
     }
 };

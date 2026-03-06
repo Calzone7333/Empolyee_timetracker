@@ -136,60 +136,53 @@ public class ActivityController {
             activities = activityRepository.findByUserId(userId);
         }
 
-        Map<String, Integer> appUsage = new HashMap<>();
+        Map<String, Integer> appActiveUsage = new HashMap<>(); // pings where app was active
+        Map<String, Integer> appTotalUsage = new HashMap<>(); // all pings for this app
         Map<String, String> appToRecentTitle = new HashMap<>();
-
-        // We use ALL activities (active + background) for the list of used applications
-        // This ensures apps open in background are still listed as "used"
-        long totalTrackedCount = activities.size();
 
         for (Activity a : activities) {
             if (a.getApplication() != null && !"Unknown".equalsIgnoreCase(a.getApplication())) {
                 String appName = a.getApplication();
-                // Clean up name: remove path and .exe
-                if (appName.contains("\\")) {
+                // Clean up name
+                if (appName.contains("\\"))
                     appName = appName.substring(appName.lastIndexOf("\\") + 1);
-                } else if (appName.contains("/")) {
+                else if (appName.contains("/"))
                     appName = appName.substring(appName.lastIndexOf("/") + 1);
-                }
-                if (appName.toLowerCase().endsWith(".exe")) {
+                if (appName.toLowerCase().endsWith(".exe"))
                     appName = appName.substring(0, appName.length() - 4);
-                }
-
-                // Capitalize first letter
-                if (appName.length() > 0) {
+                if (appName.length() > 0)
                     appName = appName.substring(0, 1).toUpperCase() + appName.substring(1);
-                }
 
-                appUsage.put(appName, appUsage.getOrDefault(appName, 0) + 1);
+                appTotalUsage.put(appName, appTotalUsage.getOrDefault(appName, 0) + 1);
+                if ("active".equals(a.getType())) {
+                    appActiveUsage.put(appName, appActiveUsage.getOrDefault(appName, 0) + 1);
+                }
                 if (a.getWebsite() != null && !a.getWebsite().isEmpty()) {
                     appToRecentTitle.put(appName, a.getWebsite());
                 }
             }
         }
 
+        long totalActivePings = activities.stream().filter(a -> "active".equals(a.getType())).count();
+        long totalDenominator = totalActivePings > 0 ? totalActivePings : 1;
+
         List<Map<String, Object>> result = new ArrayList<>();
-        long totalDenominator = totalTrackedCount > 0 ? totalTrackedCount : 1;
+        for (String appName : appTotalUsage.keySet()) {
+            int activeCount = appActiveUsage.getOrDefault(appName, 0);
+            int totalCount = appTotalUsage.get(appName);
+            int durationSecs = activeCount * 10;
+            double percentage = (activeCount * 100.0) / totalDenominator;
 
-        for (Map.Entry<String, Integer> entry : appUsage.entrySet()) {
-            String appName = entry.getKey();
-            int count = entry.getValue();
-            int durationSecs = count * 10;
-            double percentage = (count * 100.0) / totalDenominator;
-
-            // Simple productivity categorization logic
             String lowerApp = appName.toLowerCase();
             String group = "Neutral";
             if (lowerApp.contains("code") || lowerApp.contains("studio") || lowerApp.contains("idea") ||
                     lowerApp.contains("slack") || lowerApp.contains("teams") || lowerApp.contains("word") ||
-                    lowerApp.contains("excel") || lowerApp.contains("powerpoint") || lowerApp.contains("mysql") ||
-                    lowerApp.contains("workbench") || lowerApp.contains("postman") || lowerApp.contains("terminal") ||
-                    lowerApp.contains("cmd") || lowerApp.contains("powershell") || lowerApp.contains("vs") ||
-                    lowerApp.contains("git") || lowerApp.contains("docker")) {
+                    lowerApp.contains("excel") || lowerApp.contains("chrome") || lowerApp.contains("firefox") ||
+                    lowerApp.contains("mysql") || lowerApp.contains("postman") || lowerApp.contains("terminal") ||
+                    lowerApp.contains("cmd") || lowerApp.contains("powershell")) {
                 group = "Productive";
-            } else if (lowerApp.contains("game") || lowerApp.contains("steam") || lowerApp.contains("player") ||
-                    lowerApp.contains("video") || lowerApp.contains("music") || lowerApp.contains("spotify") ||
-                    lowerApp.contains("netflix")) {
+            } else if (lowerApp.contains("game") || lowerApp.contains("steam") || lowerApp.contains("netflix") ||
+                    lowerApp.contains("spotify") || lowerApp.contains("music") || lowerApp.contains("video")) {
                 group = "Non-Productive";
             }
 
@@ -199,16 +192,14 @@ public class ActivityController {
             map.put("dur", String.format("%02d:%02d:%02d", durationSecs / 3600, (durationSecs % 3600) / 60,
                     durationSecs % 60));
             map.put("durationSecs", durationSecs);
-            map.put("inact", "0 Mins");
+            map.put("totalDurationSecs", totalCount * 10);
             map.put("perc", String.format("%.1f%%", percentage));
             map.put("percVal", percentage);
-            map.put("title", appToRecentTitle.getOrDefault(appName, ""));
+            map.put("title", appToRecentTitle.getOrDefault(appName, "Main Window"));
             result.add(map);
         }
 
-        // Sort by duration descending
-        result.sort((a, b) -> Double.compare((Double) b.get("percVal"), (Double) a.get("percVal")));
-
+        result.sort((a, b) -> ((Integer) b.get("durationSecs")).compareTo((Integer) a.get("durationSecs")));
         return result;
     }
 
