@@ -1,5 +1,7 @@
-// API Configuration
-const API_BASE_URL = `http://103.181.108.248/api`;
+// API Configuration (Dynamic selection based on environment)
+const API_BASE_URL = import.meta.env.DEV
+    ? `http://localhost:8084/api`
+    : `http://103.181.108.248/api`;
 
 // User Management APIs
 export const registerUser = async (userData) => {

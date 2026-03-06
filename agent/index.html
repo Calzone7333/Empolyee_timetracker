@@ -253,13 +253,28 @@
             }
         }
 
-        btnStart.addEventListener('click', () => { window.api.startTracking(); updateStatus(); });
-        btnPause.addEventListener('click', () => { window.api.pauseTracking(); updateStatus(); });
+        btnStart.addEventListener('click', () => {
+            btnStart.disabled = true;
+            statusDot.className = 'status-dot running';
+            window.api.startTracking();
+            setTimeout(updateStatus, 500);
+        });
+        btnPause.addEventListener('click', () => {
+            btnPause.disabled = true;
+            statusDot.className = 'status-dot paused';
+            window.api.pauseTracking();
+            setTimeout(updateStatus, 500);
+        });
         btnStop.addEventListener('click', () => {
-            if (confirm("Reset tracking timer?")) { window.api.stopTracking(); updateStatus(); }
+            if (confirm("Reset tracking timer?")) {
+                btnStop.disabled = true;
+                statusDot.className = 'status-dot';
+                window.api.stopTracking();
+                setTimeout(updateStatus, 500);
+            }
         });
 
-        setInterval(updateStatus, 1000);
+        setInterval(updateStatus, 2000);
         updateStatus();
     </script>
 </body>

@@ -34,6 +34,7 @@
       "preload.js",
       "index.html",
       "package.json",
+      "assets/**/*",
       "node_modules/**/*"
     ],
     "mac": {
