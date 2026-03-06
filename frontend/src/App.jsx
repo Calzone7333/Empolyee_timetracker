@@ -150,257 +150,279 @@ function App({ dynamicData }) {
   }, [selectedUserId, selectedDate, activeRange]);
 
   const updateData = async () => {
-    // 1. Fetch REAL users from backend
-    const realUsers = await getAllUsers();
-    setUsersList(realUsers);
+    try {
+      // 1. Fetch REAL users from backend
+      const realUsers = await getAllUsers();
+      if (!realUsers || realUsers.length === 0) return;
+      setUsersList(realUsers);
 
-    // 2. Fetch Teams and Departments (for Admin views)
-    const teamsData = await getTeams();
-    const deptsData = await getDepartments();
+      // 2. Fetch Teams and Departments (for Admin views)
+      const teamsData = await getTeams();
+      const deptsData = await getDepartments();
 
-    // Auto-select first user if none selected
-    let currentId = selectedUserId;
-    if (!currentId && realUsers.length > 0) {
-      currentId = realUsers[0].id;
-      setSelectedUserId(currentId);
-    }
-
-    // 3. Fetch data for selected user
-    if (currentId) {
-      const formattedDate = selectedDate.getFullYear() + '-' + String(selectedDate.getMonth() + 1).padStart(2, '0') + '-' + String(selectedDate.getDate()).padStart(2, '0');
-      const rangeParam = activeRange.toLowerCase();
-
-      // Parallelize all heavy dashboard endpoints
-      const [
-        activity,
-        apps,
-        websites,
-        recentScreenshots,
-        stats,
-        claims,
-        yesterdayActivity,
-        weekActivity
-      ] = await Promise.all([
-        getUserActivity(currentId, formattedDate, rangeParam),
-        getApplicationsUsed(currentId, formattedDate, rangeParam),
-        getWebsitesVisited(currentId, formattedDate, rangeParam),
-        fetchScreenshots(currentId, formattedDate),
-        fetchActivityLevels(currentId, formattedDate, rangeParam),
-        getTimeClaims(currentId),
-
-        // Comparative data for Trends
-        getUserActivity(currentId, (() => {
-          const y = new Date(selectedDate);
-          y.setDate(y.getDate() - 1);
-          return y.toISOString().split('T')[0];
-        })()),
-        getUserActivity(currentId, formattedDate, 'week')
-      ]);
-
-      setManualClaims(claims);
-
-      console.log('Fetching for ID:', currentId);
-      const currentUser = realUsers.find(u => u.id == currentId);
-      console.log('Found user:', currentUser);
-      console.log('DEBUG: APPS RECEIVED:', apps);
-      console.log('DEBUG: WEBSITES RECEIVED:', websites);
-
-      const formatDur = (s) => {
-        const h = Math.floor(s / 3600);
-        const m = Math.floor((s % 3600) / 60);
-        return `${h}:${m.toString().padStart(2, '0')}`;
-      };
-
-      // 4. Calculate productivity based on the 'apps' and 'websites' summaries from backend
-      let prodSecs = 0, nonProdSecs = 0, neutralSecs = 0;
-      let groupsInfo = { 'Productivity Apps': 0, 'Internet Browsing': 0, 'Others': 0 };
-
-      apps.forEach(a => {
-        if (a.group === 'Productive') prodSecs += (a.durationSecs || 0);
-        else if (a.group === 'Non-Productive') nonProdSecs += (a.durationSecs || 0);
-        else neutralSecs += (a.durationSecs || 0);
-
-        if (a.group === 'Productive') groupsInfo['Productivity Apps'] += (a.durationSecs || 0);
-        else groupsInfo['Others'] += (a.durationSecs || 0);
-      });
-
-      websites.forEach(w => {
-        if (w.group === 'Productive') prodSecs += (w.durationSecs || 0);
-        else if (w.group === 'Non-Productive') nonProdSecs += (w.durationSecs || 0);
-        else neutralSecs += (w.durationSecs || 0);
-
-        groupsInfo['Internet Browsing'] += (w.durationSecs || 0);
-      });
-
-      const totalSecs = prodSecs + nonProdSecs + neutralSecs || 1;
-      const productivityData = [
-        { name: 'Productive', value: Math.round((prodSecs / totalSecs) * 100), full: `${formatDur(prodSecs)} (${Math.round((prodSecs / totalSecs) * 100)}%)`, color: '#26a69a' },
-        { name: 'Non-Productive', value: Math.round((nonProdSecs / totalSecs) * 100), full: `${formatDur(nonProdSecs)} (${Math.round((nonProdSecs / totalSecs) * 100)}%)`, color: '#ffb300' },
-        { name: 'Neutral', value: Math.round((neutralSecs / totalSecs) * 100), full: `${formatDur(neutralSecs)} (${Math.round((neutralSecs / totalSecs) * 100)}%)`, color: '#90a4ae' }
-      ];
-
-      const appGroupsData = Object.entries(groupsInfo).filter(([k, v]) => v > 0).map(([name, valSecs]) => ({
-        name,
-        duration: formatDur(valSecs),
-        percentage: Math.round((valSecs / totalSecs) * 100) + '%'
-      }));
-
-      const categoriesData = [
-        { name: 'Productive', duration: formatDur(prodSecs), percentage: Math.round((prodSecs / totalSecs) * 100) + '%' },
-        { name: 'Non-Productive', duration: formatDur(nonProdSecs), percentage: Math.round((nonProdSecs / totalSecs) * 100) + '%' },
-        { name: 'Neutral', duration: formatDur(neutralSecs), percentage: Math.round((neutralSecs / totalSecs) * 100) + '%' }
-      ].filter(c => parseInt(c.percentage) > 0);
-
-      let attendanceData = [];
-      let timelineData = [];
-
-      if (activity.length > 0) {
-        const first = new Date(activity[0].timestamp);
-        const last = new Date(activity[activity.length - 1].timestamp);
-        const spentMs = last - first; // Duration between first and last ping
-
-        // Format HH:MM
-        const formatTime = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const spentH = Math.floor(spentMs / 3600000);
-        const spentM = Math.floor((spentMs % 3600000) / 60000);
-
-        attendanceData.push({
-          start: formatTime(first),
-          end: formatTime(last),
-          spent: `${spentH.toString().padStart(2, '0')}:${spentM.toString().padStart(2, '0')}`,
-          activity: 'Working',
-          status: 'Active',
-          type: 'working'
-        });
-
-        // Calculate continuous timeline segments
-        let currentType = null;
-        let currentCount = 0;
-        const totalPings = activity.length;
-        const segments = [];
-
-        activity.forEach(a => {
-          let type = 'neutral';
-          const app = (a.application || '').toLowerCase();
-          const site = (a.website || '').toLowerCase();
-
-          if (app.includes('code') || app.includes('studio') || app.includes('visual') ||
-            app.includes('word') || app.includes('excel') || app.includes('slack') ||
-            site.includes('github') || site.includes('stackoverflow') || site.includes('jira') ||
-            site.includes('google') || site.includes('canva') || site.includes('figma')) {
-            type = 'productive';
-          } else if (site.includes('youtube') || site.includes('facebook') || site.includes('instagram') ||
-            site.includes('netflix') || site.includes('twitter') || site.includes('reddit') || app.includes('game')) {
-            type = 'non-productive';
-          }
-
-          if (type === currentType) {
-            currentCount++;
-          } else {
-            if (currentType) segments.push({ type: currentType, width: (currentCount / totalPings) * 100 });
-            currentType = type;
-            currentCount = 1;
-          }
-        });
-        if (currentType) segments.push({ type: currentType, width: (currentCount / totalPings) * 100 });
-
-        timelineData.push({
-          date: new Date().toLocaleDateString('en-GB'),
-          day: 'Today',
-          data: true,
-          segments: segments
-        });
-      } else {
-        attendanceData.push({ start: '-', end: '-', spent: '00:00', activity: '-', status: 'Absent', type: 'absent' });
+      // Auto-select first user if none selected
+      let currentId = selectedUserId;
+      if (!currentId && realUsers.length > 0) {
+        currentId = realUsers[0].id;
+        setSelectedUserId(currentId);
       }
 
-      // Trends Comparison Helper
-      const getStatsFor = (list) => {
-        let p = 0, np = 0, n = 0;
-        list.forEach(a => {
-          const app = (a.application || '').toLowerCase();
-          const site = (a.website || '').toLowerCase();
-          if (app.includes('code') || app.includes('studio') || site.includes('github') || site.includes('google')) p++;
-          else if (site.includes('youtube') || site.includes('facebook') || site.includes('netflix')) np++;
-          else n++;
-        });
-        const total = list.length || 1;
-        return {
-          productive: formatDur(p * 10),
-          nonProductive: formatDur(np * 10),
-          neutral: formatDur(n * 10),
-          pPerc: Math.round((p / total) * 100),
-          npPerc: Math.round((np / total) * 100),
-          nPerc: Math.round((n / total) * 100)
+      // 3. Fetch data for selected user
+      if (currentId) {
+        const formattedDate = selectedDate.getFullYear() + '-' + String(selectedDate.getMonth() + 1).padStart(2, '0') + '-' + String(selectedDate.getDate()).padStart(2, '0');
+        const rangeParam = activeRange.toLowerCase();
+
+        // Parallelize all heavy dashboard endpoints
+        const [
+          activity,
+          apps,
+          websites,
+          recentScreenshots,
+          stats,
+          claims,
+          yesterdayActivity,
+          weekActivity
+        ] = await Promise.all([
+          getUserActivity(currentId, formattedDate, rangeParam) || [],
+          getApplicationsUsed(currentId, formattedDate, rangeParam) || [],
+          getWebsitesVisited(currentId, formattedDate, rangeParam) || [],
+          fetchScreenshots(currentId, formattedDate) || [],
+          fetchActivityLevels(currentId, formattedDate, rangeParam) || [],
+          getTimeClaims(currentId) || [],
+
+          // Comparative data for Trends
+          getUserActivity(currentId, (() => {
+            const y = new Date(selectedDate);
+            y.setDate(y.getDate() - 1);
+            return y.toISOString().split('T')[0];
+          })()) || [],
+          getUserActivity(currentId, formattedDate, 'week') || []
+        ]);
+
+        if (!activity) return; // Guard against null responses
+
+        setManualClaims(claims);
+
+        const currentUser = realUsers.find(u => u.id == currentId);
+
+        const formatDur = (s) => {
+          const h = Math.floor(s / 3600);
+          const m = Math.floor((s % 3600) / 60);
+          return `${h}:${m.toString().padStart(2, '0')}`;
         };
-      };
 
-      const yesterdayStats = getStatsFor(yesterdayActivity);
-      const weekStats = getStatsFor(weekActivity);
+        // 4. Calculate productivity based on the 'apps' and 'websites' summaries from backend
+        let prodSecs = 0, nonProdSecs = 0, neutralSecs = 0;
+        let groupsInfo = { 'Productivity Apps': 0, 'Internet Browsing': 0, 'Others': 0 };
 
-      // Weekly Balance Data
-      const weeklyBalance = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(selectedDate);
-        d.setDate(d.getDate() - i);
-        const dStr = d.toISOString().split('T')[0];
-        const dayLogs = weekActivity.filter(a => a.timestamp && a.timestamp.split('T')[0] === dStr);
-        weeklyBalance.push({
-          date: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
-          actual: parseFloat((dayLogs.length * 10 / 3600).toFixed(1)),
-          expected: 8
+        (apps || []).forEach(a => {
+          if (a.group === 'Productive') prodSecs += (a.durationSecs || 0);
+          else if (a.group === 'Non-Productive') nonProdSecs += (a.durationSecs || 0);
+          else neutralSecs += (a.durationSecs || 0);
+
+          if (a.group === 'Productive') groupsInfo['Productivity Apps'] += (a.durationSecs || 0);
+          else groupsInfo['Others'] += (a.durationSecs || 0);
         });
+
+        (websites || []).forEach(w => {
+          if (w.group === 'Productive') prodSecs += (w.durationSecs || 0);
+          else if (w.group === 'Non-Productive') nonProdSecs += (w.durationSecs || 0);
+          else neutralSecs += (w.durationSecs || 0);
+
+          groupsInfo['Internet Browsing'] += (w.durationSecs || 0);
+        });
+
+        const totalSecs = prodSecs + nonProdSecs + neutralSecs || 1;
+        const productivityData = [
+          { name: 'Productive', value: Math.round((prodSecs / totalSecs) * 100), full: `${formatDur(prodSecs)} (${Math.round((prodSecs / totalSecs) * 100)}%)`, color: '#26a69a' },
+          { name: 'Non-Productive', value: Math.round((nonProdSecs / totalSecs) * 100), full: `${formatDur(nonProdSecs)} (${Math.round((nonProdSecs / totalSecs) * 100)}%)`, color: '#ffb300' },
+          { name: 'Neutral', value: Math.round((neutralSecs / totalSecs) * 100), full: `${formatDur(neutralSecs)} (${Math.round((neutralSecs / totalSecs) * 100)}%)`, color: '#90a4ae' }
+        ];
+
+        const appGroupsData = Object.entries(groupsInfo).filter(([k, v]) => v > 0).map(([name, valSecs]) => ({
+          name,
+          duration: formatDur(valSecs),
+          percentage: Math.round((valSecs / totalSecs) * 100) + '%'
+        }));
+
+        const categoriesData = [
+          { name: 'Productive', duration: formatDur(prodSecs), percentage: Math.round((prodSecs / totalSecs) * 100) + '%' },
+          { name: 'Non-Productive', duration: formatDur(nonProdSecs), percentage: Math.round((nonProdSecs / totalSecs) * 100) + '%' },
+          { name: 'Neutral', duration: formatDur(neutralSecs), percentage: Math.round((neutralSecs / totalSecs) * 100) + '%' }
+        ].filter(c => parseInt(c.percentage) > 0);
+
+        let attendanceData = [];
+        let timelineData = [];
+
+        if (activity && activity.length > 0) {
+          const formatTime = (d) => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+          // Group into segments based on time gaps (> 10 mins)
+          let segments_list = [];
+          let currentSegment = [activity[0]];
+
+          for (let i = 1; i < activity.length; i++) {
+            const prevTime = new Date(activity[i - 1].timestamp).getTime();
+            const currTime = new Date(activity[i].timestamp).getTime();
+
+            // If gap > 10 minutes, start new segment
+            if (currTime - prevTime > 10 * 60 * 1000) {
+              segments_list.push(currentSegment);
+              currentSegment = [activity[i]];
+            } else {
+              currentSegment.push(activity[i]);
+            }
+          }
+          segments_list.push(currentSegment);
+
+          attendanceData = segments_list.map(seg => {
+            const s = new Date(seg[0].timestamp);
+            const e = new Date(seg[seg.length - 1].timestamp);
+            const diffMs = e - s;
+            const diffH = Math.floor(diffMs / 3600000);
+            const diffM = Math.floor((diffMs % 3600000) / 60000);
+
+            return {
+              start: formatTime(s),
+              end: formatTime(e),
+              spent: `${diffH.toString().padStart(2, '0')}:${diffM.toString().padStart(2, '0')}`,
+              activity: seg.length > 5 ? 'Working' : 'Short Activity',
+              status: 'Active',
+              type: 'working'
+            };
+          });
+
+          // Calculate continuous timeline segments for visualization
+          let currentType = null;
+          let currentCount = 0;
+          const totalPings = activity.length;
+          const visSegments = [];
+
+          activity.forEach(a => {
+            let type = 'neutral';
+            const app = (a.application || '').toLowerCase();
+            const site = (a.website || '').toLowerCase();
+
+            if (app.includes('code') || app.includes('studio') || app.includes('visual') ||
+              app.includes('word') || app.includes('excel') || app.includes('slack') ||
+              site.includes('github') || site.includes('stackoverflow') || site.includes('jira') ||
+              site.includes('google') || site.includes('canva') || site.includes('figma')) {
+              type = 'productive';
+            } else if (site.includes('youtube') || site.includes('facebook') || site.includes('instagram') ||
+              site.includes('netflix') || site.includes('twitter') || site.includes('reddit') || app.includes('game')) {
+              type = 'non-productive';
+            }
+
+            if (type === currentType) {
+              currentCount++;
+            } else {
+              if (currentType) visSegments.push({ type: currentType, width: (currentCount / totalPings) * 100 });
+              currentType = type;
+              currentCount = 1;
+            }
+          });
+          if (currentType) visSegments.push({ type: currentType, width: (currentCount / totalPings) * 100 });
+
+          timelineData.push({
+            date: selectedDate.toLocaleDateString('en-GB'),
+            day: 'Today',
+            data: true,
+            segments: visSegments
+          });
+        } else {
+          attendanceData.push({ start: '-', end: '-', spent: '00:00', activity: '-', status: 'Absent', type: 'absent' });
+        }
+
+        // Trends Comparison Helper
+        const getStatsFor = (list) => {
+          if (!list || list.length === 0) return { productive: '0:00', nonProductive: '0:00', neutral: '0:00', pPerc: 0, npPerc: 0, nPerc: 0 };
+          let p = 0, np = 0, n = 0;
+          list.forEach(a => {
+            const app = (a.application || '').toLowerCase();
+            const site = (a.website || '').toLowerCase();
+            if (app.includes('code') || app.includes('studio') || site.includes('github') || site.includes('google')) p++;
+            else if (site.includes('youtube') || site.includes('facebook') || site.includes('netflix')) np++;
+            else n++;
+          });
+          const total = list.length || 1;
+          return {
+            productive: formatDur(p * 10),
+            nonProductive: formatDur(np * 10),
+            neutral: formatDur(n * 10),
+            pPerc: Math.round((p / total) * 100),
+            npPerc: Math.round((np / total) * 100),
+            nPerc: Math.round((n / total) * 100)
+          };
+        };
+
+        const yesterdayStats = getStatsFor(yesterdayActivity);
+        const weekStats = getStatsFor(weekActivity);
+
+        // Weekly Balance Data
+        const weeklyBalance = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(selectedDate);
+          d.setDate(d.getDate() - i);
+          const dStr = d.toISOString().split('T')[0];
+          const dayLogs = (weekActivity || []).filter(a => a.timestamp && a.timestamp.split('T')[0] === dStr);
+          weeklyBalance.push({
+            date: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+            actual: parseFloat((dayLogs.length * 10 / 3600).toFixed(1)),
+            expected: 8
+          });
+        }
+
+        // Map backend response to UI structure
+        const activeActivitiesList = (activity || []).filter(a => a.type === 'active');
+        setMonitoringData({
+          user: currentUser,
+          activeTime: activeActivitiesList.length > 0 ? `${Math.floor(activeActivitiesList.length * 10 / 3600).toString().padStart(2, '0')}:${Math.floor((activeActivitiesList.length * 10 / 60) % 60).toString().padStart(2, '0')}` : '00:00',
+          productivity: productivityData,
+          attendance: attendanceData,
+          appGroups: appGroupsData,
+          categories: categoriesData,
+          topApps: (apps || []).map(a => ({
+            name: a.app,
+            value: Math.round(a.percVal || 0),
+            full: a.dur,
+            group: a.group,
+            perc: a.perc,
+            title: a.title,
+            durationSecs: a.durationSecs
+          })),
+          topSites: (websites || []).map(w => ({
+            name: w.site,
+            value: Math.round(w.percVal || 0),
+            full: w.dur,
+            group: w.group,
+            perc: w.perc,
+            fullTitle: w.fullTitle,
+            durationSecs: w.durationSecs
+          })),
+          awayTime: '00:00',
+          idleTime: formatDur((activity || []).filter(a => (a.idleTime || 0) > 0).length * 10),
+          timeline: timelineData,
+          screenshots: recentScreenshots,
+          activityLevels: stats,
+          rawActivities: activity,
+          teams: teamsData,
+          departments: deptsData,
+          trends: {
+            today: { productive: formatDur(prodSecs), nonProductive: formatDur(nonProdSecs), neutral: formatDur(neutralSecs), pPerc: Math.round((prodSecs / totalSecs) * 100), npPerc: Math.round((nonProdSecs / totalSecs) * 100), nPerc: Math.round((neutralSecs / totalSecs) * 100) },
+            yesterday: yesterdayStats,
+            week: weekStats
+          },
+          weeklyBalance
+        });
+
+        // Also update separate states if needed by other components
+        setScreenshots(recentScreenshots);
+        setActivityData(stats);
+        setIsAgentInstalled(realUsers.length > 0);
       }
-
-      // Map backend response to UI structure
-      const activeActivitiesList = activity.filter(a => a.type === 'active');
-      setMonitoringData({
-        user: currentUser,
-        activeTime: activeActivitiesList.length > 0 ? `${Math.floor(activeActivitiesList.length * 10 / 3600).toString().padStart(2, '0')}:${Math.floor((activeActivitiesList.length * 10 / 60) % 60).toString().padStart(2, '0')}` : '00:00',
-        productivity: productivityData,
-        attendance: attendanceData,
-        appGroups: appGroupsData,
-        categories: categoriesData,
-        topApps: apps.map(a => ({
-          name: a.app,
-          value: Math.round(a.percVal || 0),
-          full: a.dur,
-          group: a.group,
-          perc: a.perc,
-          title: a.title,
-          durationSecs: a.durationSecs
-        })),
-        topSites: websites.map(w => ({
-          name: w.site,
-          value: Math.round(w.percVal || 0),
-          full: w.dur,
-          group: w.group,
-          perc: w.perc,
-          fullTitle: w.fullTitle,
-          durationSecs: w.durationSecs
-        })),
-        awayTime: '00:00',
-        idleTime: formatDur(activity.filter(a => (a.idleTime || 0) > 0).length * 10),
-        timeline: timelineData,
-        screenshots: recentScreenshots,
-        activityLevels: stats,
-        rawActivities: activity,
-        teams: teamsData,
-        departments: deptsData,
-        trends: {
-          today: { productive: formatDur(prodSecs), nonProductive: formatDur(nonProdSecs), neutral: formatDur(neutralSecs), pPerc: Math.round((prodSecs / totalSecs) * 100), npPerc: Math.round((nonProdSecs / totalSecs) * 100), nPerc: Math.round((neutralSecs / totalSecs) * 100) },
-          yesterday: yesterdayStats,
-          week: weekStats
-        },
-        weeklyBalance
-      });
-
-      // Also update separate states if needed by other components
-      setScreenshots(recentScreenshots);
-      setActivityData(stats);
+    } catch (error) {
+      console.error('Error in updateData:', error);
     }
-
-    setIsAgentInstalled(realUsers.length > 0);
   };
 
   // State for connection listening

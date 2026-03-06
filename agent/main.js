@@ -215,6 +215,7 @@ const register = async () => {
 const activeWindow = async () => {
     if (process.platform === 'win32') {
         try {
+            // Using a more robust PowerShell script to get foreground window, name and title.
             const script = `
                 Add-Type @"
                   using System;
@@ -226,17 +227,28 @@ const activeWindow = async () => {
                     public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
                   }
 "@
-                $hwnd = [User32]::GetForegroundWindow()
-                $pidOut = 0
-                [User32]::GetWindowThreadProcessId($hwnd, [ref]$pidOut) | Out-Null
-                $proc = Get-Process -Id $pidOut
-                $obj = @{ owner = @{ name = $proc.ProcessName }; title = $proc.MainWindowTitle }
-                $obj | ConvertTo-Json -Compress
+                try {
+                    $hwnd = [User32]::GetForegroundWindow()
+                    if ($hwnd -ne [IntPtr]::Zero) {
+                        $pidOut = 0
+                        [User32]::GetWindowThreadProcessId($hwnd, [ref]$pidOut) | Out-Null
+                        $proc = Get-Process -Id $pidOut
+                        $obj = @{ owner = @{ name = $proc.ProcessName }; title = $proc.MainWindowTitle }
+                        $obj | ConvertTo-Json -Compress
+                    } else {
+                        '{"owner":{"name":"Idle"},"title":""}'
+                    }
+                } catch {
+                    '{"owner":{"name":"Unknown"},"title":""}'
+                }
             `;
-            const command = `powershell -NoProfile -ExecutionPolicy Bypass -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ';')}"`;
+            // Base64 encoding the command is the SAFEST way to pass complex PS to PowerShell via shell
+            const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
+            const command = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedScript}`;
             const stdout = execSync(command, { encoding: 'utf8', stdio: 'pipe' });
-            return JSON.parse(stdout);
+            return JSON.parse(stdout.trim());
         } catch (e) {
+            console.error('[AGENT] activeWindow failed:', e.message);
             return { owner: { name: 'Unknown' }, title: '' };
         }
     }
@@ -277,24 +289,26 @@ const monitor = async () => {
     }
 
     try {
-        // 1. Get the Active Window (the current priority)
+        // 1. Get the Active Window (foreground priority)
         const activeWin = await activeWindow();
+        console.log(`[TRACKER] Active App: ${activeWin.owner ? activeWin.owner.name : 'Unknown'}`);
 
-        // 2. Get ALL Running Apps with windows (for the 'Applications Used' list)
-        // This makes it match Task Manager as the user requested.
+        // 2. Get ALL Running Apps/Windows (for 'Applications Used' and 'Websites')
         let runningApps = [];
         try {
-            const psCommandForRunning = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Process | Where-Object {$_.MainWindowTitle -ne ''} | Select-Object ProcessName, MainWindowTitle | ConvertTo-Json -Compress"`;
-            const runningStdout = execSync(psCommandForRunning, { encoding: 'utf8' });
-            if (runningStdout.trim()) {
-                const parsed = JSON.parse(runningStdout);
+            const script = `Get-Process | Where-Object {$_.MainWindowTitle -ne ''} | Select-Object @{N='ProcessName';E={$_.ProcessName}}, @{N='MainWindowTitle';E={$_.MainWindowTitle}} | ConvertTo-Json -Compress`;
+            const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
+            const psCommandForRunning = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedScript}`;
+            const stdout = execSync(psCommandForRunning, { encoding: 'utf8' });
+            if (stdout.trim()) {
+                const parsed = JSON.parse(stdout);
                 runningApps = Array.isArray(parsed) ? parsed : [parsed];
             }
         } catch (e) {
-            console.error('[TRACKER] Error getting running apps:', e.message);
+            console.error('[TRACKER] Error detecting running apps:', e.message);
         }
 
-        console.log(`[TRACKER] Active: ${activeWin && activeWin.owner ? activeWin.owner.name : 'Unknown'} | Total Running Apps: ${runningApps.length}`);
+        console.log(`[TRACKER] Syncing ${runningApps.length} processes`);
 
         // Grab values and reset for next interval
         const keys = currentKeyStrokes;
@@ -302,37 +316,36 @@ const monitor = async () => {
         currentKeyStrokes = 0;
         currentMouseClicks = 0;
 
-        // Send the main ACTIVE activity
-        const activityData = {
+        // 3. Send ACTIVE Ping
+        const activeData = {
             userId,
             type: 'active',
             application: activeWin && activeWin.owner ? activeWin.owner.name : 'Unknown',
-            website: activeWin ? (activeWin.url || activeWin.title) : '',
+            website: activeWin ? activeWin.title : '',
             keyStrokes: keys,
             mouseClicks: clicks,
             idleTime: 0,
             timestamp: getISTISOString()
         };
 
-        axios.post(`${SERVER_URL}/activity/track`, activityData)
-            .then(() => console.log(`[TRACKER] Active data sent`))
-            .catch(err => console.error(`[TRACKER] Failed to send active data: ${err.message}`));
+        axios.post(`${SERVER_URL}/activity/track`, activeData)
+            .then(() => console.log(`[TRACKER] Active ping SENT: ${activeData.application}`))
+            .catch(err => console.error(`[TRACKER] ACTIVE SYNC FAILED: ${err.message}`));
 
-        // Send BACKGROUND activities for all other running apps so they appear in the "Applications Used" table
-        // We filter out the active app from this list to prevent double counting in the same second
-        const activeAppName = activeWin && activeWin.owner ? activeWin.owner.name.toLowerCase() : '';
+        // 4. Send BACKGROUND pings for other open windows
+        const activeAppNameLower = (activeWin && activeWin.owner ? activeWin.owner.name : '').toLowerCase();
+
         for (const app of runningApps) {
-            const name = app.ProcessName;
-            if (name.toLowerCase() === activeAppName) continue;
+            if (!app.ProcessName || app.ProcessName.toLowerCase() === activeAppNameLower) continue;
 
             const bgActivity = {
                 userId,
-                type: 'background',
-                application: name,
-                website: app.MainWindowTitle,
+                type: 'background', // Mark as background for analytics
+                application: app.ProcessName,
+                website: app.MainWindowTitle || '',
                 keyStrokes: 0,
                 mouseClicks: 0,
-                idleTime: 10, // Mark as idle since it's in background
+                idleTime: 10,
                 timestamp: getISTISOString()
             };
             axios.post(`${SERVER_URL}/activity/track`, bgActivity).catch(() => null);

@@ -139,11 +139,12 @@ public class ActivityController {
         Map<String, Integer> appUsage = new HashMap<>();
         Map<String, String> appToRecentTitle = new HashMap<>();
 
-        System.out.println("Backend Request: getApplications for user " + userId + " on date " + date);
-        System.out.println("Activities found: " + activities.size());
+        // We use ALL activities (active + background) for the list of used applications
+        // This ensures apps open in background are still listed as "used"
+        long totalTrackedCount = activities.size();
 
         for (Activity a : activities) {
-            if (a.getApplication() != null) {
+            if (a.getApplication() != null && !"Unknown".equalsIgnoreCase(a.getApplication())) {
                 String appName = a.getApplication();
                 // Clean up name: remove path and .exe
                 if (appName.contains("\\")) {
@@ -166,24 +167,15 @@ public class ActivityController {
                 }
             }
         }
-        System.out.println("Identified " + appUsage.size() + " unique apps.");
 
         List<Map<String, Object>> result = new ArrayList<>();
-        long totalTracked = activities.stream().filter(a -> "active".equals(a.getType())).count();
-        if (totalTracked == 0)
-            totalTracked = 1;
-
-        // Skip the next old if block
-        if (false)
-
-            if (totalTracked == 0)
-                totalTracked = 1;
+        long totalDenominator = totalTrackedCount > 0 ? totalTrackedCount : 1;
 
         for (Map.Entry<String, Integer> entry : appUsage.entrySet()) {
             String appName = entry.getKey();
             int count = entry.getValue();
             int durationSecs = count * 10;
-            double percentage = (count * 100.0) / totalTracked;
+            double percentage = (count * 100.0) / totalDenominator;
 
             // Simple productivity categorization logic
             String lowerApp = appName.toLowerCase();
@@ -247,10 +239,14 @@ public class ActivityController {
         Map<String, Integer> siteUsage = new HashMap<>();
         Map<String, String> siteToFullTitle = new HashMap<>();
 
-        System.out.println("Backend Request: getWebsites for user " + userId + " on date " + date);
-        System.out.println("Activities found: " + activities.size());
+        // Filter and count ONLY active pings for usage duration
+        List<Activity> activeActivities = activities.stream()
+                .filter(a -> "active".equals(a.getType()))
+                .toList();
 
-        for (Activity a : activities) {
+        long totalActiveCount = activeActivities.size();
+
+        for (Activity a : activeActivities) {
             String site = a.getWebsite();
             if (site != null && !site.isEmpty()) {
                 // If it looks like a URL with http, try to get the domain
@@ -271,24 +267,15 @@ public class ActivityController {
                 siteToFullTitle.put(displaySite, site);
             }
         }
-        System.out.println("Identified " + siteUsage.size() + " unique websites.");
 
         List<Map<String, Object>> result = new ArrayList<>();
-        long totalTracked = activities.stream().filter(a -> "active".equals(a.getType())).count();
-        if (totalTracked == 0)
-            totalTracked = 1;
-
-        // Skip the next old if block
-        if (false)
-
-            if (totalTracked == 0)
-                totalTracked = 1;
+        long totalDenominator = totalActiveCount > 0 ? totalActiveCount : 1;
 
         for (Map.Entry<String, Integer> entry : siteUsage.entrySet()) {
             String siteName = entry.getKey();
             int count = entry.getValue();
             int durationSecs = count * 10;
-            double percentage = (count * 100.0) / totalTracked;
+            double percentage = (count * 100.0) / totalDenominator;
 
             // Productivity Logic for Websites
             String lowerSite = siteName.toLowerCase();
