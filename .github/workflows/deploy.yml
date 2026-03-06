@@ -43,9 +43,10 @@ jobs:
       ############################
       - name: Deploy Backend
         run: |
+          ssh -p 19919 -o StrictHostKeyChecking=no prakash@103.181.108.248 "mkdir -p ~/apps/Empolyee_timetracker/backend-java"
           rsync -avz --delete -e "ssh -p 19919 -o StrictHostKeyChecking=no" \
           backend-java/target/monitor-0.0.1-SNAPSHOT.jar \
-          prakash@103.181.108.248:/apps/Empolyee_timetracker/backend-java/
+          prakash@103.181.108.248:~/apps/Empolyee_timetracker/backend-java/
 
       ############################
       # 5️⃣ Restart Backend Application
@@ -57,6 +58,6 @@ jobs:
             pkill -f 'monitor-0.0.1-SNAPSHOT.jar' || true
             
             # Start new backend in background
-            cd /apps/Empolyee_timetracker/backend-java/
+            cd ~/apps/Empolyee_timetracker/backend-java/
             nohup java -jar monitor-0.0.1-SNAPSHOT.jar > app.log 2>&1 &
           EOF
