@@ -24,7 +24,9 @@ public class ActivityController {
 
     @PostMapping("/activity/track")
     public Map<String, Object> track(@RequestBody Activity activity) {
-        activity.setTimestamp(LocalDateTime.now());
+        if (activity.getTimestamp() == null) {
+            activity.setTimestamp(LocalDateTime.now());
+        }
         Activity saved = activityRepository.save(activity);
 
         userRepository.findById(activity.getUserId()).ifPresent(user -> {
@@ -227,20 +229,13 @@ public class ActivityController {
             activities = activityRepository.findByUserId(userId);
         }
 
-        Map<String, Integer> siteUsage = new HashMap<>();
+        Map<String, Integer> siteActiveCount = new HashMap<>();
+        Map<String, Integer> siteTotalCount = new HashMap<>();
         Map<String, String> siteToFullTitle = new HashMap<>();
 
-        // Filter and count ONLY active pings for usage duration
-        List<Activity> activeActivities = activities.stream()
-                .filter(a -> "active".equals(a.getType()))
-                .toList();
-
-        long totalActiveCount = activeActivities.size();
-
-        for (Activity a : activeActivities) {
+        for (Activity a : activities) {
             String site = a.getWebsite();
             if (site != null && !site.isEmpty()) {
-                // If it looks like a URL with http, try to get the domain
                 String displaySite = site;
                 if (site.contains("://")) {
                     try {
@@ -249,41 +244,38 @@ public class ActivityController {
                     } catch (Exception e) {
                     }
                 } else if (site.contains(" - ")) {
-                    // Often window titles are "Page Title - Domain"
                     String[] parts = site.split(" - ");
                     displaySite = parts[parts.length - 1];
                 }
 
-                siteUsage.put(displaySite, siteUsage.getOrDefault(displaySite, 0) + 1);
+                siteTotalCount.put(displaySite, siteTotalCount.getOrDefault(displaySite, 0) + 1);
+                if ("active".equals(a.getType())) {
+                    siteActiveCount.put(displaySite, siteActiveCount.getOrDefault(displaySite, 0) + 1);
+                }
                 siteToFullTitle.put(displaySite, site);
             }
         }
 
+        long totalActiveDenominator = activities.stream().filter(a -> "active".equals(a.getType())).count();
+        if (totalActiveDenominator == 0)
+            totalActiveDenominator = 1;
+
         List<Map<String, Object>> result = new ArrayList<>();
-        long totalDenominator = totalActiveCount > 0 ? totalActiveCount : 1;
+        for (String siteName : siteTotalCount.keySet()) {
+            int activeCount = siteActiveCount.getOrDefault(siteName, 0);
+            int totalCount = siteTotalCount.get(siteName);
+            int durationSecs = activeCount * 10;
+            double percentage = (activeCount * 100.0) / totalActiveDenominator;
 
-        for (Map.Entry<String, Integer> entry : siteUsage.entrySet()) {
-            String siteName = entry.getKey();
-            int count = entry.getValue();
-            int durationSecs = count * 10;
-            double percentage = (count * 100.0) / totalDenominator;
-
-            // Productivity Logic for Websites
             String lowerSite = siteName.toLowerCase();
             String fullTitle = siteToFullTitle.getOrDefault(siteName, "").toLowerCase();
             String group = "Neutral";
-
             if (lowerSite.contains("github") || lowerSite.contains("stackoverflow") ||
-                    lowerSite.contains("jira") || lowerSite.contains("confluence") ||
-                    lowerSite.contains("figma") || lowerSite.contains("canva") ||
-                    lowerSite.contains("google") || fullTitle.contains("documentation") ||
-                    fullTitle.contains("tutorial") || lowerSite.contains("azure") ||
-                    lowerSite.contains("aws") || lowerSite.contains("maven")) {
+                    lowerSite.contains("jira") || lowerSite.contains("google") ||
+                    fullTitle.contains("documentation")) {
                 group = "Productive";
             } else if (lowerSite.contains("youtube") || lowerSite.contains("facebook") ||
-                    lowerSite.contains("instagram") || lowerSite.contains("netflix") ||
-                    lowerSite.contains("twitter") || lowerSite.contains("reddit") ||
-                    lowerSite.contains("amazon") || lowerSite.contains("flipkart")) {
+                    lowerSite.contains("netflix") || lowerSite.contains("amazon")) {
                 group = "Non-Productive";
             }
 
@@ -293,16 +285,14 @@ public class ActivityController {
             map.put("dur", String.format("%02d:%02d:%02d", durationSecs / 3600, (durationSecs % 3600) / 60,
                     durationSecs % 60));
             map.put("durationSecs", durationSecs);
-            map.put("inact", "0 Mins");
+            map.put("totalDurationSecs", totalCount * 10);
             map.put("perc", String.format("%.1f%%", percentage));
             map.put("percVal", percentage);
             map.put("fullTitle", siteToFullTitle.get(siteName));
             result.add(map);
         }
 
-        // Sort by duration descending
         result.sort((a, b) -> Double.compare((Double) b.get("percVal"), (Double) a.get("percVal")));
-
         return result;
     }
 }
