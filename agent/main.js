@@ -156,50 +156,38 @@ const getBrowserUrl = (processName) => {
     try {
         const script = `
             Add-Type -AssemblyName UIAutomationClient
-            
-            $proc = Get-Process -Name "${processName}" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-            if (-not $proc) { exit }
+            $p = Get-Process -Name "${processName}" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            if (-not $p) { exit }
 
-            $root = [Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
-            if (-not $root) { exit }
+            try {
+                $root = [Windows.Automation.AutomationElement]::FromHandle($p.MainWindowHandle)
+                if (-not $root) { exit }
 
-            # Direct search for Edit controls (fastest)
-            $condition = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlTypes]::Edit)
-            $edits = $root.FindAll([Windows.Automation.TreeScope]::Descendants, $condition)
-            
-            foreach ($edit in $edits) {
-                $val = ""
-                try {
-                    if ($edit.GetSupportedPatterns() -contains [Windows.Automation.ValuePattern]::Pattern) {
-                        $val = $edit.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
-                    }
-                    if (-not $val) { $val = $edit.Current.Name }
-
-                    if ($val -and ($val -match "^(https?://|www\\.)" -or $val -match "^[a-z0-9.-]+\\.(com|org|net|edu|in|gov|io|co|me|ai)/")) {
-                        if ($val -notmatch "^https?://") { $val = "https://" + $val }
-                        $val; exit
-                    }
-                } catch { continue }
-            }
-
-            # Search by specific names (robust fallback)
-            $names = @("Address and search bar", "Search or enter web address", "Search or enter address", "Address Bar", "Address and Search Bar")
-            foreach ($n in $names) {
-                $cond = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::NameProperty, $n)
-                $element = $root.FindFirst([Windows.Automation.TreeScope]::Descendants, $cond)
-                if ($element) {
+                # Optimization: Look for Address bar controls by ControlType directly
+                # Most browsers use "Address and search bar" or similar as the name, 
+                # but searching by class name or control type is more reliable.
+                $condition = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlTypes]::Edit)
+                $elements = $root.FindAll([Windows.Automation.TreeScope]::Descendants, $condition)
+                
+                foreach ($el in $elements) {
+                    $val = ""
                     try {
-                        if ($element.GetSupportedPatterns() -contains [Windows.Automation.ValuePattern]::Pattern) {
-                            $v = $element.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
-                            if ($v) { $v; exit }
+                        if ($el.GetSupportedPatterns() -contains [Windows.Automation.ValuePattern]::Pattern) {
+                            $val = $el.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
                         }
-                    } catch {}
+                        if (-not $val) { $val = $el.Current.Name }
+                        
+                        if ($val -and ($val -match "^(https?://|www\\.)" -or $val -match "^[a-z0-9.-]+\\.[a-z]{2,}/")) {
+                            if ($val -notmatch "^https?://") { $val = "https://" + $val }
+                            $val; exit
+                        }
+                    } catch { continue }
                 }
-            }
+            } catch { exit }
         `;
         const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
         const command = `powershell -NoProfile -ExecutionPolicy Bypass -Ordered -EncodedCommand ${encodedScript}`;
-        const output = execSync(command, { encoding: 'utf8', stdio: 'pipe', timeout: 5000 }).trim();
+        const output = execSync(command, { encoding: 'utf8', stdio: 'pipe', timeout: 4000 }).trim();
         return output || null;
     } catch (e) {
         return null;
@@ -208,7 +196,7 @@ const getBrowserUrl = (processName) => {
 
 /**
  * Gets the active window title and process name using a robust PowerShell script.
- * This is more reliable than Electron modules on Windows for capturing all apps.
+ * Enhanced to handle inaccessible processes and avoid "Unknown" status.
  */
 const activeWindow = async () => {
     try {
@@ -218,37 +206,44 @@ const activeWindow = async () => {
               using System.Runtime.InteropServices;
               using System.Text;
               public class Win32 {
-                [DllImport("user32.dll")]
-                public static extern IntPtr GetForegroundWindow();
-                [DllImport("user32.dll")]
-                public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
-                [DllImport("user32.dll")]
-                public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+                [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+                [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
+                [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
               }
 "@
-            $hwnd = [Win32]::GetForegroundWindow()
-            if ($hwnd -ne [IntPtr]::Zero) {
+            try {
+                $hwnd = [Win32]::GetForegroundWindow()
+                if ($hwnd -eq [IntPtr]::Zero) { "System|Idle|"; exit }
+                
                 $pid = 0
                 [Win32]::GetWindowThreadProcessId($hwnd, [ref]$pid)
-                $proc = Get-Process -Id $pid
+                if ($pid -eq 0) { "System|Idle|"; exit }
                 
+                $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+                if (-not $proc) { "Unknown|Unknown|"; exit }
+
                 $titleBuilder = New-Object System.Text.StringBuilder 256
                 [Win32]::GetWindowText($hwnd, $titleBuilder, 256) | Out-Null
                 $title = $titleBuilder.ToString()
+                if (-not $title) { $title = $proc.MainWindowTitle }
+                if (-not $title) { $title = "Active Application" }
+
+                $path = ""
+                try { $path = $proc.MainModule.FileName } catch { try { $path = $proc.Path } catch { $path = "Unknown" } }
                 
-                # Output format: ProcessName|WindowTitle|ProcessPath
-                $proc.Name + "|" + $title + "|" + $proc.MainModule.FileName
+                $proc.Name + "|" + $title + "|" + $path
+            } catch {
+                "System|Unknown|"
             }
         `;
         const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
-        const command = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedScript}`;
-        const output = execSync(command, { encoding: 'utf8', stdio: 'pipe', timeout: 3000 }).trim();
+        const command = `powershell -NoProfile -ExecutionPolicy Bypass -Ordered -EncodedCommand ${encodedScript}`;
+        const output = execSync(command, { encoding: 'utf8', stdio: 'pipe', timeout: 5000 }).trim();
         
         if (output && output.includes('|')) {
             const [name, title, path] = output.split('|');
-            const processName = name.toLowerCase();
+            const processName = (name || 'Unknown').toLowerCase();
             
-            // Check if it's a browser to try and get the URL
             let browserUrl = null;
             const browsers = ['chrome', 'msedge', 'firefox', 'brave', 'opera', 'vivaldi'];
             if (browsers.some(b => processName.includes(b))) {
@@ -256,13 +251,13 @@ const activeWindow = async () => {
             }
 
             return {
-                title: title || 'No Title',
+                title: title || 'Active Application',
                 owner: { name: name || 'Unknown', path: path || '' },
                 url: browserUrl
             };
         }
     } catch (e) {
-        // console.error('[AGENT] Window detection error:', e.message);
+        // Fallback for extreme cases
     }
     return { title: 'Unknown', owner: { name: 'Unknown' }, url: null };
 };
@@ -388,7 +383,7 @@ app.whenReady().then(async () => {
     // Window creation logic
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.workAreaSize;
-    const winWidth = 240, winHeight = 220;
+    const winWidth = 260, winHeight = 320;
 
     mainWindow = new BrowserWindow({
         width: winWidth, height: winHeight,

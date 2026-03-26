@@ -251,18 +251,26 @@ public class ActivityController {
 
     private String getAppGroup(String appName) {
         String lower = appName.toLowerCase();
+        // Productive Apps
         if (lower.contains("code") || lower.contains("studio") || lower.contains("idea") ||
             lower.contains("slack") || lower.contains("teams") || lower.contains("chrome") ||
-            lower.contains("firefox") || lower.contains("mysql") || lower.contains("postman") ||
-            lower.contains("terminal") || lower.contains("intellij") || lower.contains("git") ||
+            lower.contains("msedge") || lower.contains("firefox") || lower.contains("terminal") ||
+            lower.contains("powershell") || lower.contains("mysql") || lower.contains("postgresql") ||
+            lower.contains("postman") || lower.contains("excel") || lower.contains("word") ||
+            lower.contains("outlook") || lower.contains("intellij") || lower.contains("git") ||
             lower.contains("docker") || lower.contains("zoom") || lower.contains("meet") ||
             lower.contains("skype") || lower.contains("figma") || lower.contains("adobe") ||
-            lower.contains("notion") || lower.contains("trello") || lower.contains("jira")) {
+            lower.contains("notion") || lower.contains("trello") || lower.contains("jira") ||
+            lower.contains("confluence") || lower.contains("dbeaver") || lower.contains("navicat") ||
+            lower.contains("putty") || lower.contains("winscp") || lower.contains("filezilla")) {
             return "Productive";
-        } else if (lower.contains("game") || lower.contains("steam") || lower.contains("netflix") ||
+        } 
+        // Non-Productive Apps
+        else if (lower.contains("game") || lower.contains("steam") || lower.contains("netflix") ||
             lower.contains("spotify") || lower.contains("music") || lower.contains("video") ||
             lower.contains("youtube") || lower.contains("facebook") || lower.contains("instagram") ||
-            lower.contains("twitter") || lower.contains("tiktok") || lower.contains("reddit")) {
+            lower.contains("twitter") || lower.contains("tiktok") || lower.contains("reddit") ||
+            lower.contains("whatsapp") || lower.contains("telegram") || lower.contains("discord")) {
             return "Non-Productive";
         }
         return "Neutral";
@@ -272,18 +280,27 @@ public class ActivityController {
         String lowerSite = siteName.toLowerCase();
         String lowerTitle = (fullTitle != null ? fullTitle.toLowerCase() : "");
         
+        // Productive Sites
         if (lowerSite.contains("github") || lowerSite.contains("stackoverflow") ||
             lowerSite.contains("jira") || lowerSite.contains("google") ||
             lowerSite.contains("atlassian") || lowerSite.contains("bitbucket") ||
             lowerSite.contains("gitlab") || lowerSite.contains("aws") ||
             lowerSite.contains("azure") || lowerSite.contains("cloud") ||
+            lowerSite.contains("documentation") || lowerSite.contains("tutorial") ||
+            lowerSite.contains("learn") || lowerSite.contains("academy") ||
+            lowerSite.contains("chatgpt") || lowerSite.contains("anthropic") ||
+            lowerSite.contains("gemini") || lowerSite.contains("portal") ||
             lowerTitle.contains("documentation") || lowerTitle.contains("tutorial") ||
             lowerTitle.contains("search") || lowerTitle.contains("stack overflow")) {
             return "Productive";
-        } else if (lowerSite.contains("youtube") || lowerSite.contains("facebook") ||
+        } 
+        // Non-Productive Sites
+        else if (lowerSite.contains("youtube") || lowerSite.contains("facebook") ||
             lowerSite.contains("netflix") || lowerSite.contains("amazon") ||
-            lowerSite.contains("instagram") || lowerSite.contains("twitter") ||
-            lowerSite.contains("reddit") || lowerSite.contains("twitch")) {
+            lowerSite.contains("flipkart") || lowerSite.contains("instagram") ||
+            lowerSite.contains("twitter") || lowerSite.contains("reddit") ||
+            lowerSite.contains("twitch") || lowerSite.contains("prime") ||
+            lowerSite.contains("hotstar") || lowerSite.contains("spotify")) {
             return "Non-Productive";
         }
         return "Neutral";
