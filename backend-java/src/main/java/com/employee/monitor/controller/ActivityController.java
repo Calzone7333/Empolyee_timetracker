@@ -1,16 +1,13 @@
 package com.employee.monitor.controller;
 
 import com.employee.monitor.model.Activity;
-import com.employee.monitor.model.User;
 import com.employee.monitor.repository.ActivityRepository;
 import com.employee.monitor.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.nio.file.Paths;
 
 @RestController
 @RequestMapping("/api")
@@ -27,6 +24,40 @@ public class ActivityController {
         if (activity.getTimestamp() == null) {
             activity.setTimestamp(LocalDateTime.now());
         }
+
+        // --- Data Cleanup & Fallback ---
+        String app = activity.getApplication();
+        String title = activity.getWebsite();
+
+        if (app == null || "Unknown".equalsIgnoreCase(app) || app.isEmpty()) {
+            if (title != null && !title.isEmpty() && !"Unknown".equalsIgnoreCase(title)) {
+                // Try to extract app name from title (e.g. "Google Search - Google Chrome" ->
+                // "Google Chrome")
+                if (title.contains(" - ")) {
+                    app = title.substring(title.lastIndexOf(" - ") + 3).trim();
+                } else {
+                    app = title;
+                }
+                activity.setApplication(app);
+            }
+        }
+
+        // Clean up app name paths and extensions
+        if (app != null && !app.isEmpty()) {
+            if (app.contains("\\"))
+                app = app.substring(app.lastIndexOf("\\") + 1);
+            if (app.toLowerCase().endsWith(".exe"))
+                app = app.substring(0, app.length() - 4);
+            if (app.length() > 0)
+                app = app.substring(0, 1).toUpperCase() + app.substring(1);
+            activity.setApplication(app);
+        }
+
+        // Determine if this should be 'idle' type if idleTime is significant
+        if (activity.getIdleTime() != null && activity.getIdleTime() > 120) {
+            activity.setType("idle");
+        }
+
         Activity saved = activityRepository.save(activity);
 
         userRepository.findById(activity.getUserId()).ifPresent(user -> {
@@ -143,25 +174,40 @@ public class ActivityController {
         Map<String, String> appToRecentTitle = new HashMap<>();
 
         for (Activity a : activities) {
-            if (a.getApplication() != null && !"Unknown".equalsIgnoreCase(a.getApplication())) {
-                String appName = a.getApplication();
-                // Clean up name
-                if (appName.contains("\\"))
-                    appName = appName.substring(appName.lastIndexOf("\\") + 1);
-                else if (appName.contains("/"))
-                    appName = appName.substring(appName.lastIndexOf("/") + 1);
-                if (appName.toLowerCase().endsWith(".exe"))
-                    appName = appName.substring(0, appName.length() - 4);
-                if (appName.length() > 0)
-                    appName = appName.substring(0, 1).toUpperCase() + appName.substring(1);
+            String appName = a.getApplication();
+            if (appName == null || appName.isEmpty() || "Unknown".equalsIgnoreCase(appName)) {
+                // If app is unknown, try to use website name as app name
+                if (a.getWebsite() != null && !a.getWebsite().isEmpty()
+                        && !"Unknown".equalsIgnoreCase(a.getWebsite())) {
+                    appName = a.getWebsite();
+                    if (appName.contains(" - ")) {
+                        appName = appName.substring(appName.lastIndexOf(" - ") + 3).trim();
+                    }
+                } else {
+                    continue; // Truly unknown, skip for stats
+                }
+            }
 
-                appTotalUsage.put(appName, appTotalUsage.getOrDefault(appName, 0) + 1);
-                if ("active".equals(a.getType())) {
-                    appActiveUsage.put(appName, appActiveUsage.getOrDefault(appName, 0) + 1);
-                }
-                if (a.getWebsite() != null && !a.getWebsite().isEmpty()) {
-                    appToRecentTitle.put(appName, a.getWebsite());
-                }
+            // Clean up name
+            if (appName.contains("\\"))
+                appName = appName.substring(appName.lastIndexOf("\\") + 1);
+            else if (appName.contains("/"))
+                appName = appName.substring(appName.lastIndexOf("/") + 1);
+            if (appName.toLowerCase().endsWith(".exe"))
+                appName = appName.substring(0, appName.length() - 4);
+
+            // Further cleaning for titles that are too long
+            if (appName.length() > 50)
+                appName = appName.substring(0, 47) + "...";
+            if (appName.length() > 0)
+                appName = appName.substring(0, 1).toUpperCase() + appName.substring(1);
+
+            appTotalUsage.put(appName, appTotalUsage.getOrDefault(appName, 0) + 1);
+            if ("active".equals(a.getType())) {
+                appActiveUsage.put(appName, appActiveUsage.getOrDefault(appName, 0) + 1);
+            }
+            if (a.getWebsite() != null && !a.getWebsite().isEmpty()) {
+                appToRecentTitle.put(appName, a.getWebsite());
             }
         }
 
@@ -181,10 +227,17 @@ public class ActivityController {
                     lowerApp.contains("slack") || lowerApp.contains("teams") || lowerApp.contains("word") ||
                     lowerApp.contains("excel") || lowerApp.contains("chrome") || lowerApp.contains("firefox") ||
                     lowerApp.contains("mysql") || lowerApp.contains("postman") || lowerApp.contains("terminal") ||
-                    lowerApp.contains("cmd") || lowerApp.contains("powershell")) {
+                    lowerApp.contains("cmd") || lowerApp.contains("powershell") || lowerApp.contains("intellij") ||
+                    lowerApp.contains("eclipse") || lowerApp.contains("git") || lowerApp.contains("docker") ||
+                    lowerApp.contains("zoom") || lowerApp.contains("meet") || lowerApp.contains("skype") ||
+                    lowerApp.contains("figma") || lowerApp.contains("adobe") || lowerApp.contains("canva") ||
+                    lowerApp.contains("notion") || lowerApp.contains("trello") || lowerApp.contains("jira")) {
                 group = "Productive";
             } else if (lowerApp.contains("game") || lowerApp.contains("steam") || lowerApp.contains("netflix") ||
-                    lowerApp.contains("spotify") || lowerApp.contains("music") || lowerApp.contains("video")) {
+                    lowerApp.contains("spotify") || lowerApp.contains("music") || lowerApp.contains("video") ||
+                    lowerApp.contains("youtube") || lowerApp.contains("facebook") || lowerApp.contains("instagram") ||
+                    lowerApp.contains("twitter") || lowerApp.contains("tiktok") || lowerApp.contains("reddit") ||
+                    lowerApp.contains("discord") || lowerApp.contains("whatsapp") || lowerApp.contains("telegram")) {
                 group = "Non-Productive";
             }
 
@@ -235,7 +288,7 @@ public class ActivityController {
 
         for (Activity a : activities) {
             String site = a.getWebsite();
-            if (site != null && !site.isEmpty()) {
+            if (site != null && !site.isEmpty() && !"Unknown".equalsIgnoreCase(site)) {
                 String displaySite = site;
                 if (site.contains("://")) {
                     try {
@@ -272,10 +325,19 @@ public class ActivityController {
             String group = "Neutral";
             if (lowerSite.contains("github") || lowerSite.contains("stackoverflow") ||
                     lowerSite.contains("jira") || lowerSite.contains("google") ||
-                    fullTitle.contains("documentation")) {
+                    lowerSite.contains("atlassian") || lowerSite.contains("bitbucket") ||
+                    lowerSite.contains("gitlab") || lowerSite.contains("aws") ||
+                    lowerSite.contains("azure") || lowerSite.contains("cloud") ||
+                    fullTitle.contains("documentation") || fullTitle.contains("tutorial") ||
+                    fullTitle.contains("search") || fullTitle.contains("stack overflow") ||
+                    fullTitle.contains("github")) {
                 group = "Productive";
             } else if (lowerSite.contains("youtube") || lowerSite.contains("facebook") ||
-                    lowerSite.contains("netflix") || lowerSite.contains("amazon")) {
+                    lowerSite.contains("netflix") || lowerSite.contains("amazon") ||
+                    lowerSite.contains("instagram") || lowerSite.contains("twitter") ||
+                    lowerSite.contains("x.com") || lowerSite.contains("reddit") ||
+                    lowerSite.contains("twitch") || lowerSite.contains("primevideo") ||
+                    lowerSite.contains("disneyplus") || lowerSite.contains("flipkart")) {
                 group = "Non-Productive";
             }
 

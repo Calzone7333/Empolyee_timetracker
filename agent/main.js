@@ -5,7 +5,21 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
-const { uIOhook, UiohookKey } = require('uiohook-napi');
+const { uIOhook } = require('uiohook-napi');
+
+// Handle single instance
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+    app.quit();
+} else {
+    app.on('second-instance', () => {
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+        }
+    });
+}
 
 // --- Helpers ---
 const getIPAddress = () => {
@@ -39,8 +53,10 @@ let checkInTime = null;
 let trackingSeconds = 0;
 let timerInterval = null;
 
-let currentKeyStrokes = 0;
-let currentMouseClicks = 0;
+let lastActivityTime = Date.now();
+uIOhook.on('keydown', () => { if (isTracking) { currentKeyStrokes++; lastActivityTime = Date.now(); } });
+uIOhook.on('mousedown', () => { if (isTracking) { currentMouseClicks++; lastActivityTime = Date.now(); } });
+uIOhook.on('mousemove', () => { if (isTracking) { lastActivityTime = Date.now(); } });
 
 let config = {};
 let userId = null;
@@ -59,7 +75,7 @@ const loadConfig = () => {
         try {
             config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
             userId = config.userId;
-            console.log(`[CONFIG] Loaded User ID: ${userId}`);
+            console.log(`[CONFIG] Loaded User ID: ${userId}, User Name: ${config.userName}`);
         } catch (e) {
             console.error('[CONFIG] Error loading config:', e);
         }
@@ -112,7 +128,11 @@ const register = async () => {
         const res = await axios.post(`${SERVER_URL}/users/register`, registrationData);
         if (res.data.success && res.data.user) {
             console.log(`[REG] Registration successful. ID: ${res.data.user.id}`);
-            saveConfig({ userId: res.data.user.id });
+            saveConfig({
+                userId: res.data.user.id,
+                userName: res.data.user.userName,
+                generatedPassword: res.data.rawPassword
+            });
             return;
         }
     } catch (error) {
@@ -120,19 +140,59 @@ const register = async () => {
     }
 
     if (!userId) {
-        console.error('[REG] Still not registered. Monitoring will be delayed.');
+        // console.log('[REG] No user logged in yet. Waiting for login.');
     }
 };
 
 // --- Tracking Utilities ---
+let getActiveWindow = null;
 const activeWindow = async () => {
     try {
-        const { activeWindow: getActiveWindow } = require('active-win');
+        if (!getActiveWindow) {
+            const mod = await import('active-win');
+            getActiveWindow = mod.activeWindow;
+        }
         const win = await getActiveWindow();
-        return win || { title: 'Unknown', owner: { name: 'Unknown' } };
+        if (win && win.owner && win.owner.name && win.owner.name !== 'Unknown') {
+            return win;
+        }
     } catch (e) {
-        return { title: 'Unknown', owner: { name: 'Unknown' } };
+        // Fallback to powershell
     }
+
+    try {
+        // PowerShell Fallback for Windows
+        const script = `
+            Add-Type @"
+              using System;
+              using System.Runtime.InteropServices;
+              public class Win32 {
+                [DllImport("user32.dll")]
+                public static extern IntPtr GetForegroundWindow();
+                [DllImport("user32.dll")]
+                public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
+              }
+"@
+            $hwnd = [Win32]::GetForegroundWindow()
+            if ($hwnd -ne [IntPtr]::Zero) {
+                $pid = 0
+                [Win32]::GetWindowThreadProcessId($hwnd, [ref]$pid)
+                $proc = Get-Process -Id $pid
+                $proc.Name + "|" + $proc.MainWindowTitle
+            }
+        `;
+        const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
+        const command = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedScript}`;
+        const output = execSync(command, { encoding: 'utf8', stdio: 'pipe' }).trim();
+        if (output && output.includes('|')) {
+            const [name, title] = output.split('|');
+            return { title: title || 'No Title', owner: { name: name || 'Unknown' } };
+        }
+    } catch (psError) {
+        // console.error('[AGENT] PS fallback failed:', psError.message);
+    }
+
+    return { title: 'Unknown', owner: { name: 'Unknown' } };
 };
 
 const takeScreenshot = () => {
@@ -171,6 +231,11 @@ const monitor = async () => {
 
     try {
         const activeWin = await activeWindow();
+        const now = Date.now();
+        const idleSecs = Math.floor((now - lastActivityTime) / 1000);
+
+        console.log(`[MONITOR] Active: ${activeWin.owner?.name} | Title: ${activeWin.title} | Idle: ${idleSecs}s`);
+
         const keys = currentKeyStrokes;
         const clicks = currentMouseClicks;
         currentKeyStrokes = 0;
@@ -178,23 +243,22 @@ const monitor = async () => {
 
         const activeData = {
             userId: Number(userId),
-            type: 'active',
-            application: activeWin && activeWin.owner ? String(activeWin.owner.name) : 'Unknown',
+            type: idleSecs > 120 ? 'idle' : 'active',
+            application: activeWin && activeWin.owner && activeWin.owner.name !== 'Unknown' ? String(activeWin.owner.name) : (activeWin.title && activeWin.title !== 'Unknown' ? 'Browser/App' : 'Unknown'),
             website: activeWin ? String(activeWin.title) : '',
             keyStrokes: Number(keys),
             mouseClicks: Number(clicks),
-            idleTime: 0,
+            idleTime: Number(idleSecs),
             timestamp: getISTISOString()
         };
 
         axios.post(`${SERVER_URL}/activity/track`, activeData)
-            .then(() => console.log(`[TRACKER] Active ping SENT`))
+            .then(() => console.log(`[TRACKER] Sync success: ${activeData.application} | ${activeData.type}`))
             .catch(err => {
                 const errorDetail = err.response ? JSON.stringify(err.response.data) : err.message;
-                console.error(`[TRACKER] Active sync failed: ${errorDetail}`);
+                console.error(`[TRACKER] Sync failed: ${errorDetail}`);
             });
 
-        const now = Date.now();
         if (now - lastScreenshotTime >= screenshotInterval) {
             const imgBase64 = takeScreenshot();
             if (imgBase64) {
@@ -211,10 +275,10 @@ const monitor = async () => {
     }
 };
 
-// --- Handlers ---
-uIOhook.on('keydown', () => { if (isTracking) currentKeyStrokes++; });
-uIOhook.on('mousedown', () => { if (isTracking) currentMouseClicks++; });
+let currentKeyStrokes = 0;
+let currentMouseClicks = 0;
 
+// --- Handlers ---
 app.whenReady().then(async () => {
     loadConfig();
     await register();
@@ -222,7 +286,7 @@ app.whenReady().then(async () => {
     // Window creation logic
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.workAreaSize;
-    const winWidth = 240, winHeight = 140;
+    const winWidth = 240, winHeight = 220;
 
     mainWindow = new BrowserWindow({
         width: winWidth, height: winHeight,
@@ -254,10 +318,67 @@ app.whenReady().then(async () => {
 
 ipcMain.handle('get-status', () => ({
     isTracking, trackingSeconds, checkInTime: checkInTime ? getISTISOString() : null,
-    computerName: `${os.hostname()}_${getIPAddress()}`,
-    userName: os.userInfo() ? os.userInfo().username : 'Unknown',
-    userId: userId || 'Not Registered', serverUrl: SERVER_URL
+    computerName: os.hostname(),
+    userName: config.userName || os.userInfo().username || 'Unknown',
+    userId: userId || null,
+    generatedPassword: config.generatedPassword || null,
+    serverUrl: SERVER_URL
 }));
+
+ipcMain.handle('login', async (event, credentials) => {
+    try {
+        console.log(`[LOGIN] Attempting login for ${credentials.userName}...`);
+        const res = await axios.post(`${SERVER_URL}/users/login`, credentials);
+        if (res.data.success && res.data.user) {
+            const user = res.data.user;
+            userId = user.id;
+            saveConfig({
+                userId: user.id,
+                userName: user.userName,
+                employeeId: user.employeeId,
+                generatedPassword: null // Clear once logged in
+            });
+            console.log(`[LOGIN] Successful: ${user.userName} (ID: ${user.id})`);
+            return { success: true, user: res.data.user };
+        }
+        return { success: false, message: res.data.message || 'Invalid credentials' };
+    } catch (error) {
+        console.error(`[LOGIN] Error: ${error.message}`);
+        return { success: false, message: 'Server connection error' };
+    }
+});
+
+const stopEverything = () => {
+    isTracking = false;
+    if (trackingInterval) {
+        clearInterval(trackingInterval);
+        trackingInterval = null;
+    }
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+    try {
+        uIOhook.stop();
+    } catch (e) {
+        // Ignore if already stopped
+    }
+};
+
+ipcMain.handle('logout', async () => {
+    console.log('[LOGOUT] User logging out...');
+    stopEverything();
+    trackingSeconds = 0;
+    checkInTime = null;
+    userId = null;
+    saveConfig({
+        userId: null,
+        userName: null,
+        employeeId: null,
+        generatedPassword: null
+    });
+    return { success: true };
+});
 
 ipcMain.on('start-tracking', () => {
     if (!isTracking) {
@@ -266,7 +387,7 @@ ipcMain.on('start-tracking', () => {
         lastScreenshotTime = 0;
         if (!timerInterval) timerInterval = setInterval(() => { if (isTracking) trackingSeconds++; }, 1000);
         if (!trackingInterval) {
-            uIOhook.start();
+            try { uIOhook.start(); } catch (e) { }
             trackingInterval = setInterval(monitor, 10000);
             monitor();
         }
@@ -274,15 +395,13 @@ ipcMain.on('start-tracking', () => {
 });
 
 ipcMain.on('pause-tracking', () => {
-    isTracking = false;
-    if (trackingInterval) { clearInterval(trackingInterval); trackingInterval = null; uIOhook.stop(); }
-    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    stopEverything();
 });
 
 ipcMain.on('stop-tracking', () => {
-    isTracking = false; trackingSeconds = 0; checkInTime = null;
-    if (trackingInterval) { clearInterval(trackingInterval); trackingInterval = null; uIOhook.stop(); }
-    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    stopEverything();
+    trackingSeconds = 0;
+    checkInTime = null;
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

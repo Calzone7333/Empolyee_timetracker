@@ -26,6 +26,7 @@ public class User {
     private String status;
     private String department;
     private String team;
+    private String password;
     private LocalDate joinDate;
     private LocalDateTime lastActive;
     private Integer screenshotInterval = 60; // default 60 seconds

@@ -630,13 +630,22 @@ function App({ dynamicData }) {
             <div
               key={u.id}
               className={`employee-item ${selectedUserId == u.id ? 'active' : ''}`}
-              style={{ cursor: 'pointer' }}
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
               onClick={() => {
                 console.log('Selected user:', u.id);
                 setSelectedUserId(u.id);
               }}
             >
-              {u.userName} ({u.employeeId || 'ID'})
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: (u.lastActive && (new Date() - new Date(u.lastActive)) < 300000) ? '#26a69a' : '#ccc',
+                flexShrink: 0
+              }}></div>
+              <div style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {u.userName} <span style={{ opacity: 0.6, fontSize: '10px' }}>({u.employeeId || 'ID'})</span>
+              </div>
             </div>
           ))
         )}
@@ -2185,6 +2194,7 @@ function App({ dynamicData }) {
                         <th style={{ padding: '15px' }}>Name / User Name</th>
                         <th style={{ padding: '15px' }}>Computer Details</th>
                         <th style={{ padding: '15px' }}>Role</th>
+                        <th style={{ padding: '15px' }}>Last Active</th>
                         <th style={{ padding: '15px' }}>Status</th>
                         <th style={{ padding: '15px' }}>Actions</th>
                       </tr>
@@ -2207,7 +2217,10 @@ function App({ dynamicData }) {
                               {user.computerName || 'N/A'}
                             </td>
                             <td style={{ padding: '15px', color: '#546e7a' }}>{user.role || 'Agent User'}</td>
-                            <td style={{ padding: '15px' }}><span style={{ background: '#e0f2f1', color: '#00897b', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600' }}>Active</span></td>
+                            <td style={{ padding: '15px', color: '#546e7a', fontSize: '11px' }}>
+                              {user.lastActive ? new Date(user.lastActive).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Never'}
+                            </td>
+                            <td style={{ padding: '15px' }}><span style={{ background: user.status === 'Active' ? '#e0f2f1' : '#f5f5f5', color: user.status === 'Active' ? '#00897b' : '#90a4ae', padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '600' }}>{user.status || 'Active'}</span></td>
                             <td style={{ padding: '15px' }}>
                               <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                                 <span
@@ -2500,6 +2513,10 @@ function App({ dynamicData }) {
               <div>
                 <label style={{ display: 'block', fontSize: '12px', color: '#546e7a', marginBottom: '5px' }}>Team</label>
                 <input type="text" value={userToEdit.team || ''} onChange={(e) => setUserToEdit({ ...userToEdit, team: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: '#546e7a', marginBottom: '5px' }}>Password</label>
+                <input type="password" placeholder="New password" onChange={(e) => setUserToEdit({ ...userToEdit, password: e.target.value })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }} />
               </div>
               <div style={{ gridColumn: 'span 2', display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
                 <button style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid #ddd', background: 'white' }} onClick={() => setShowEditUserModal(false)}>Cancel</button>

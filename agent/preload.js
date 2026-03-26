@@ -5,5 +5,7 @@ contextBridge.exposeInMainWorld('api', {
     pauseTracking: () => ipcRenderer.send('pause-tracking'),
     stopTracking: () => ipcRenderer.send('stop-tracking'),
     getStatus: () => ipcRenderer.invoke('get-status'),
-    testConnection: () => ipcRenderer.invoke('test-connection')
+    testConnection: () => ipcRenderer.invoke('test-connection'),
+    login: (credentials) => ipcRenderer.invoke('login', credentials),
+    logout: () => ipcRenderer.invoke('logout')
 });

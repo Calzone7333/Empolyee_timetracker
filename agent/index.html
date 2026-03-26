@@ -10,17 +10,19 @@
         rel="stylesheet">
     <style>
         :root {
-            --bg-color: #f2ebe3;
-            --border-color: #a98145;
+            --bg-color: rgba(255, 255, 255, 0.85);
+            /* Glass effect */
+            --border-color: rgba(169, 129, 69, 0.4);
             --gold: #a98145;
             --gold-hover: #b88d4c;
             --text-main: #1a2039;
             --text-alt: #555555;
-            --btn-text: #f2ebe3;
+            --btn-text: #ffffff;
+            --accent: #26a69a;
         }
 
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: 'Inter', -apple-system, sans-serif;
             margin: 0;
             padding: 0;
             color: var(--text-main);
@@ -32,79 +34,95 @@
             width: 100vw;
             height: 100vh;
             background: var(--bg-color);
-            border: 2px solid var(--border-color);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-color);
             border-radius: 12px;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
             position: relative;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+            transition: all 0.3s ease;
         }
 
-        /* Drag region block */
         .drag-handle {
             -webkit-app-region: drag;
-            height: 26px;
+            height: 30px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 0 10px;
-            background: rgba(0, 0, 0, 0.2);
-            border-top-left-radius: 10px;
-            border-top-right-radius: 10px;
+            padding: 0 12px;
+            background: #ffffff;
+            /* Solid header for better contrast */
+            border-bottom: 1px solid #e2e8f0;
+            border-top-left-radius: 12px;
+            border-top-right-radius: 12px;
+            flex-shrink: 0;
+            z-index: 10;
         }
 
         .widget-title {
             font-size: 0.75rem;
             font-weight: 700;
-            color: var(--text-main);
+            color: var(--gold);
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .status-dot {
-            width: 6px;
-            height: 6px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
-            background-color: #666;
+            background-color: #94a3b8;
+            transition: all 0.3s ease;
         }
 
         .status-dot.running {
             background-color: #10b981;
-            box-shadow: 0 0 6px #10b981;
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
         }
 
         .status-dot.paused {
             background-color: #f59e0b;
+            box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
         }
 
-        /* Minimize to tray button (No-drag area) */
         .window-controls {
             -webkit-app-region: no-drag;
             display: flex;
+            gap: 8px;
         }
 
-        .btn-hide {
+        .btn-hide,
+        .btn-logout {
             background: transparent;
             border: none;
-            width: 16px;
-            height: 16px;
-            color: var(--text-main);
+            width: 20px;
+            height: 20px;
+            color: #64748b;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: color 0.2s;
-            padding: 0;
+            transition: all 0.2s;
+            border-radius: 4px;
         }
 
         .btn-hide:hover {
-            color: var(--gold);
+            background: rgba(0, 0, 0, 0.05);
+            color: var(--text-main);
+        }
+
+        .btn-logout:hover {
+            background: #fee2e2;
+            color: #ef4444;
         }
 
         .content {
-            padding: 10px 12px;
+            padding: 12px 14px;
             flex: 1;
             display: flex;
             flex-direction: column;
@@ -117,72 +135,161 @@
             font-size: 2.2rem;
             font-weight: 700;
             text-align: center;
-            margin: 0 0 8px 0;
+            margin-bottom: 12px;
             color: var(--text-main);
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+            letter-spacing: -1px;
         }
 
         .controls {
             display: flex;
-            gap: 6px;
+            gap: 8px;
             width: 100%;
             -webkit-app-region: no-drag;
         }
 
         .btn {
             flex: 1;
-            padding: 6px 0;
-            border: none;
-            border-radius: 4px;
+            padding: 7px 0;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 6px;
             font-size: 0.75rem;
-            font-weight: 700;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s ease;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             background: var(--gold);
             color: var(--btn-text);
+            box-shadow: 0 2px 4px rgba(169, 129, 69, 0.2);
         }
 
         .btn:active:not(:disabled) {
-            transform: scale(0.96);
+            transform: translateY(1px);
+            box-shadow: none;
         }
 
         .btn:hover:not(:disabled) {
             background: var(--gold-hover);
-            color: var(--btn-text);
+            box-shadow: 0 4px 6px rgba(169, 129, 69, 0.3);
         }
 
         .btn:disabled {
-            opacity: 0.4;
+            opacity: 0.3;
             cursor: not-allowed;
-            box-shadow: none;
-            background: var(--gold);
-            color: var(--btn-text);
+            background: #94a3b8;
+            color: #f1f5f9;
+        }
+
+        .btn-start {
+            background: #0f172a;
+        }
+
+        .btn-start:hover {
+            background: #1e293b;
+            color: white;
         }
 
         .footer {
-            font-size: 0.6rem;
+            font-size: 0.65rem;
             color: var(--text-alt);
             text-align: center;
-            margin-top: 6px;
+            margin-top: 10px;
             width: 100%;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            font-weight: 500;
+        }
+
+        /* Login Layout */
+        .login-view {
+            padding: 8px 14px 14px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+            justify-content: flex-start;
+            overflow-y: hidden;
+            -webkit-app-region: no-drag;
+            /* Ensure interaction */
+        }
+
+        .login-view h2 {
+            margin: 4px 0;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--text-main);
+            text-align: center;
+        }
+
+        #credentialsNotice {
+            font-size: 0.62rem;
+            background: rgba(169, 129, 69, 0.08);
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px dashed rgba(169, 129, 69, 0.5);
+            margin-bottom: 2px;
+            width: 100%;
+            box-sizing: border-box;
+            line-height: 1.3;
+        }
+
+        /* Update credentials text color for better readability */
+        #genUser,
+        #genPass {
+            font-weight: 700;
+            color: #1a2039;
+        }
+
+        .form-group {
+            width: 100%;
+            -webkit-app-region: no-drag;
+        }
+
+        .form-group input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px 10px;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            background: white;
+            transition: all 0.2s;
+            outline: none;
+            -webkit-app-region: no-drag;
+        }
+
+        .form-group input:focus {
+            border-color: var(--gold);
+            box-shadow: 0 0 0 3px rgba(169, 129, 69, 0.1);
+        }
+
+        #loginError {
+            font-size: 0.7rem;
+            color: #ef4444;
+            text-align: center;
+            font-weight: 500;
+            min-height: 14px;
+        }
+
+        .hidden {
+            display: none !important;
         }
     </style>
 </head>
 
 <body>
 
-    <div class="widget-container">
+    <div class="widget-container" id="mainContainer">
         <!-- Draggable Title Bar -->
         <div class="drag-handle">
             <div class="widget-title">
                 <div class="status-dot" id="statusDot"></div>
                 Tracker
             </div>
-            <div class="window-controls">
+            <div class="window-controls" id="windowControls">
+                <button class="btn-logout hidden" id="btnLogout" title="Logout">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                        <polyline points="16 17 21 12 16 7"></polyline>
+                        <line x1="21" y1="12" x2="9" y2="12"></line>
+                    </svg>
+                </button>
                 <button class="btn-hide" id="btnMinimize" title="Hide to Tray">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
                         <path d="M5 12h14" />
@@ -191,8 +298,26 @@
             </div>
         </div>
 
-        <!-- Main Content -->
-        <div class="content">
+        <!-- Login View -->
+        <div class="login-view" id="loginView">
+            <h2>User Login</h2>
+            <div id="credentialsNotice" class="hidden">
+                <div style="font-weight: 700; color: var(--gold); margin-bottom: 2px;">Your Credentials:</div>
+                <div>User: <span id="genUser">-</span></div>
+                <div>Pass: <span id="genPass">-</span></div>
+            </div>
+            <div class="form-group">
+                <input type="text" id="username" placeholder="Username">
+            </div>
+            <div class="form-group">
+                <input type="password" id="idPassword" placeholder="Password">
+            </div>
+            <div id="loginError"></div>
+            <button class="btn" id="btnLoginAction" style="width: 100%;">Login</button>
+        </div>
+
+        <!-- Tracking Content -->
+        <div class="content hidden" id="trackingView">
             <div class="time-display" id="timeDisplay">00:00:00</div>
 
             <div class="controls">
@@ -212,6 +337,19 @@
         const timeDisplay = document.getElementById('timeDisplay');
         const statusDot = document.getElementById('statusDot');
         const userNameLabel = document.getElementById('userNameLabel');
+
+        const loginView = document.getElementById('loginView');
+        const trackingView = document.getElementById('trackingView');
+        const btnLogout = document.getElementById('btnLogout');
+        const loginError = document.getElementById('loginError');
+
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('idPassword');
+        const btnLoginAction = document.getElementById('btnLoginAction');
+
+        const credentialsNotice = document.getElementById('credentialsNotice');
+        const genUser = document.getElementById('genUser');
+        const genPass = document.getElementById('genPass');
 
         document.getElementById('btnMinimize').addEventListener('click', () => {
             window.close();
@@ -235,6 +373,28 @@
 
             userNameLabel.innerText = status.userName ? `${status.userName} - ${status.computerName}` : 'Unknown';
 
+            // Show appropriate view
+            if (status.userId && !status.generatedPassword) {
+                loginView.classList.add('hidden');
+                trackingView.classList.remove('hidden');
+                btnLogout.classList.remove('hidden');
+                credentialsNotice.classList.add('hidden');
+            } else {
+                loginView.classList.remove('hidden');
+                trackingView.classList.add('hidden');
+                btnLogout.classList.add('hidden');
+
+                if (status.generatedPassword) {
+                    credentialsNotice.classList.remove('hidden');
+                    genUser.innerText = status.userName;
+                    genPass.innerText = status.generatedPassword;
+                    if (!usernameInput.value) usernameInput.value = status.userName;
+                    if (!passwordInput.value) passwordInput.value = status.generatedPassword;
+                } else {
+                    credentialsNotice.classList.add('hidden');
+                }
+            }
+
             if (isTracking) {
                 btnStart.disabled = true;
                 btnPause.disabled = false;
@@ -252,6 +412,33 @@
                 statusDot.className = 'status-dot';
             }
         }
+
+        btnLoginAction.addEventListener('click', async () => {
+            const user = usernameInput.value.trim();
+            const pass = passwordInput.value.trim();
+            if (!user) return (loginError.innerText = "Enter username");
+
+            btnLoginAction.disabled = true;
+            loginError.innerText = "Logging in...";
+
+            const res = await window.api.login({ userName: user, password: pass });
+            if (res.success) {
+                loginError.innerText = "";
+                usernameInput.value = "";
+                passwordInput.value = "";
+                updateStatus();
+            } else {
+                loginError.innerText = res.message || "Login failed";
+            }
+            btnLoginAction.disabled = false;
+        });
+
+        btnLogout.addEventListener('click', async () => {
+            if (confirm("Logout from tracker?")) {
+                await window.api.logout();
+                updateStatus();
+            }
+        });
 
         btnStart.addEventListener('click', () => {
             btnStart.disabled = true;
@@ -276,6 +463,11 @@
 
         setInterval(updateStatus, 2000);
         updateStatus();
+
+        // Optional: enter key for login
+        passwordInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') btnLoginAction.click();
+        });
     </script>
 </body>
 
