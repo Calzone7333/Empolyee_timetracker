@@ -9,6 +9,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/claims")
+@CrossOrigin(origins = "*")
 public class TimeClaimController {
 
     @Autowired

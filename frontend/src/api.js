@@ -90,7 +90,7 @@ export const getScreenshots = async (userId, date) => {
 
 export const getActivityLevels = async (userId, date, range) => {
     try {
-        const response = await fetch(`${API_BASE_URL}/activity-levels/${userId}?date=${date}${range ? `&range=${range}` : ''}`);
+        const response = await fetch(`${API_BASE_URL}/activity/levels/${userId}?date=${date}${range ? `&range=${range}` : ''}`);
         return await response.json();
     } catch (error) {
         console.error('Error fetching activity levels:', error);
@@ -112,7 +112,7 @@ export const getAttendance = async (userId, date) => {
 // Applications and Websites APIs
 export const getApplicationsUsed = async (userId, date, range) => {
     try {
-        const response = await fetch(`${API_BASE_URL}/applications/${userId}?date=${date}${range ? `&range=${range}` : ''}`);
+        const response = await fetch(`${API_BASE_URL}/activity/applications/${userId}?date=${date}${range ? `&range=${range}` : ''}`);
         return await response.json();
     } catch (error) {
         console.error('Error fetching applications:', error);
@@ -122,7 +122,7 @@ export const getApplicationsUsed = async (userId, date, range) => {
 
 export const getWebsitesVisited = async (userId, date, range) => {
     try {
-        const response = await fetch(`${API_BASE_URL}/websites/${userId}?date=${date}${range ? `&range=${range}` : ''}`);
+        const response = await fetch(`${API_BASE_URL}/activity/websites/${userId}?date=${date}${range ? `&range=${range}` : ''}`);
         return await response.json();
     } catch (error) {
         console.error('Error fetching websites:', error);
@@ -148,6 +148,34 @@ export const getDepartments = async () => {
     } catch (error) {
         console.error('Error fetching departments:', error);
         return [];
+    }
+};
+
+export const createTeam = async (teamData) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/teams`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(teamData)
+        });
+        return await response.json();
+    } catch (error) {
+        console.error('Error creating team:', error);
+        return null;
+    }
+};
+
+export const createDepartment = async (deptData) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/departments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(deptData)
+        });
+        return await response.json();
+    } catch (error) {
+        console.error('Error creating department:', error);
+        return null;
     }
 };
 

@@ -16,6 +16,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/screenshots")
+@CrossOrigin(origins = "*")
 public class ScreenshotController {
 
     @Autowired

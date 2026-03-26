@@ -114,6 +114,7 @@ function App({ dynamicData }) {
   const [activeRange, setActiveRange] = useState('Day');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showRefreshMenu, setShowRefreshMenu] = useState(false);
+  const [paneTab, setPaneTab] = useState('Employees'); // 'Employees' or 'Teams'
 
   // Pagination States
   const [appGroupsPage, setAppGroupsPage] = useState(1);
@@ -141,6 +142,10 @@ function App({ dynamicData }) {
   const [userToEdit, setUserToEdit] = useState(null);
   const [manualClaims, setManualClaims] = useState([]);
   const [newClaim, setNewClaim] = useState({ date: '', duration: '', reason: '' });
+  const [showAddTeamModal, setShowAddTeamModal] = useState(false);
+  const [showAddDeptModal, setShowAddDeptModal] = useState(false);
+  const [newTeamName, setNewTeamName] = useState('');
+  const [newDeptName, setNewDeptName] = useState('');
 
   // Initialize dynamic data
   useEffect(() => {
@@ -606,48 +611,73 @@ function App({ dynamicData }) {
               const adminTabs = ['Profile', 'Configuration', 'Users', 'Teams', 'Departments', 'Advanced'];
               if (adminTabs.includes(item)) {
                 setActiveTab(item);
+                if (item === 'Teams') setPaneTab('Teams');
+                if (item === 'Users') setPaneTab('Employees');
               }
             }}
           />
         </nav>
       </aside>
 
-      {/* Employee List Pane */}
       <div className="employee-pane">
         <div className="employee-tabs">
-          <div className="employee-tab active">Employees</div>
-          <div className="employee-tab">Teams</div>
+          <div className={`employee-tab ${paneTab === 'Employees' ? 'active' : ''}`} onClick={() => setPaneTab('Employees')}>Employees</div>
+          <div className={`employee-tab ${paneTab === 'Teams' ? 'active' : ''}`} onClick={() => setPaneTab('Teams')}>Teams</div>
         </div>
         <div className="org-name">hado</div>
 
-        {usersList.length === 0 ? (
-          <div style={{ padding: '15px', textAlign: 'center', color: '#90a4ae', fontSize: '12px' }}>
-            No agents installed. <br />
-            <span style={{ color: '#26a69a', cursor: 'pointer', fontWeight: '500' }} onClick={handleDownloadAgent}>Download Agent</span>
-          </div>
-        ) : (
-          usersList.map(u => (
-            <div
-              key={u.id}
-              className={`employee-item ${selectedUserId == u.id ? 'active' : ''}`}
-              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-              onClick={() => {
-                console.log('Selected user:', u.id);
-                setSelectedUserId(u.id);
-              }}
-            >
-              <div style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                background: (u.lastActive && (new Date() - new Date(u.lastActive)) < 300000) ? '#26a69a' : '#ccc',
-                flexShrink: 0
-              }}></div>
-              <div style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {u.userName} <span style={{ opacity: 0.6, fontSize: '10px' }}>({u.employeeId || 'ID'})</span>
-              </div>
+        {paneTab === 'Employees' ? (
+          usersList.length === 0 ? (
+            <div style={{ padding: '15px', textAlign: 'center', color: '#90a4ae', fontSize: '12px' }}>
+              No agents installed. <br />
+              <span style={{ color: '#26a69a', cursor: 'pointer', fontWeight: '500' }} onClick={handleDownloadAgent}>Download Agent</span>
             </div>
-          ))
+          ) : (
+            usersList.map(u => (
+              <div
+                key={u.id}
+                className={`employee-item ${selectedUserId == u.id ? 'active' : ''}`}
+                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onClick={() => {
+                  console.log('Selected user:', u.id);
+                  setSelectedUserId(u.id);
+                }}
+              >
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: (u.lastActive && (new Date() - new Date(u.lastActive)) < 300000) ? '#26a69a' : '#ccc',
+                  flexShrink: 0
+                }}></div>
+                <div style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {u.userName} <span style={{ opacity: 0.6, fontSize: '10px' }}>({u.employeeId || 'ID'})</span>
+                </div>
+              </div>
+            ))
+          )
+        ) : (
+          monitoringData?.teams?.length === 0 ? (
+            <div style={{ padding: '15px', textAlign: 'center', color: '#90a4ae', fontSize: '12px' }}>
+              No teams created.
+            </div>
+          ) : (
+            (monitoringData?.teams || []).map(t => (
+              <div
+                key={t.id}
+                className="employee-item"
+                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onClick={() => {
+                  setActiveTab('Teams');
+                }}
+              >
+                <Users size={14} color="#26a69a" />
+                <div style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {t.name}
+                </div>
+              </div>
+            ))
+          )
         )}
 
         {/* Simulation Controls - Removed for Production Build */}
@@ -693,7 +723,7 @@ function App({ dynamicData }) {
               <div style={{ fontSize: '11px' }}>
                 <div style={{ fontWeight: '600', color: '#263238' }}>{monitoringData?.user?.userName || 'No User'}</div>
                 <div style={{ color: '#90a4ae', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <Monitor size={10} /> {monitoringData?.user?.computerName || 'Detecting...'}
+                  <Monitor size={10} /> {monitoringData?.user?.computerName || monitoringData?.user?.userName || 'System PC'}
                 </div>
               </div>
             </div>
@@ -2325,7 +2355,7 @@ function App({ dynamicData }) {
                     <h2 style={{ fontSize: '18px', color: '#263238', marginBottom: '4px' }}>{activeTab} Management</h2>
                     <p style={{ color: '#90a4ae', fontSize: '13px' }}>Manage {activeTab.toLowerCase()} and assign leaders.</p>
                   </div>
-                  <button className="admin-btn-primary">
+                  <button className="admin-btn-primary" onClick={() => activeTab === 'Teams' ? setShowAddTeamModal(true) : setShowAddDeptModal(true)}>
                     <PlusCircle size={14} style={{ marginRight: '6px' }} /> Create {activeTab === 'Teams' ? 'New Team' : 'Department'}
                   </button>
                 </div>
@@ -2590,7 +2620,60 @@ function App({ dynamicData }) {
         </div>
       )}
 
-    </div >
+      {showAddTeamModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: 'white', width: '400px', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ padding: '20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8f9fa' }}>
+              <h3 style={{ margin: 0, fontSize: '16px' }}>Create New Team</h3>
+              <X size={20} color="#90a4ae" style={{ cursor: 'pointer' }} onClick={() => setShowAddTeamModal(false)} />
+            </div>
+            <div style={{ padding: '24px' }}>
+              <label style={{ display: 'block', fontSize: '12px', color: '#546e7a', marginBottom: '5px' }}>Team Name</label>
+              <input type="text" value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)} placeholder="e.g. Sales Team" style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ddd', marginBottom: '20px' }} />
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button className="admin-btn-secondary" style={{ flex: 1 }} onClick={() => setShowAddTeamModal(false)}>Cancel</button>
+                <button className="admin-btn-primary" style={{ flex: 1 }} onClick={async () => {
+                  if (!newTeamName) return;
+                  const res = await createTeam({ name: newTeamName, teamLead: 'System Admin' });
+                  if (res) {
+                    await updateData();
+                    setShowAddTeamModal(false);
+                    setNewTeamName('');
+                  }
+                }}>Create Team</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddDeptModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: 'white', width: '400px', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ padding: '20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8f9fa' }}>
+              <h3 style={{ margin: 0, fontSize: '16px' }}>Create New Department</h3>
+              <X size={20} color="#90a4ae" style={{ cursor: 'pointer' }} onClick={() => setShowAddDeptModal(false)} />
+            </div>
+            <div style={{ padding: '24px' }}>
+              <label style={{ display: 'block', fontSize: '12px', color: '#546e7a', marginBottom: '5px' }}>Department Name</label>
+              <input type="text" value={newDeptName} onChange={(e) => setNewDeptName(e.target.value)} placeholder="e.g. Human Resources" style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ddd', marginBottom: '20px' }} />
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button className="admin-btn-secondary" style={{ flex: 1 }} onClick={() => setShowAddDeptModal(false)}>Cancel</button>
+                <button className="admin-btn-primary" style={{ flex: 1 }} onClick={async () => {
+                  if (!newDeptName) return;
+                  const res = await createDepartment({ name: newDeptName });
+                  if (res) {
+                    await updateData();
+                    setShowAddDeptModal(false);
+                    setNewDeptName('');
+                  }
+                }}>Create Dept</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

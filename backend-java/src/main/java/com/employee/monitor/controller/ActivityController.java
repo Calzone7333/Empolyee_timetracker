@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 @RestController
@@ -188,6 +189,38 @@ public class ActivityController {
         }
 
         result.sort((a, b) -> Double.compare((Double) b.get("percVal"), (Double) a.get("percVal")));
+        return result;
+    }
+
+    @GetMapping("/levels/{userId}")
+    public List<Map<String, Object>> getLevels(@PathVariable Long userId,
+            @RequestParam(required = false) String date,
+            @RequestParam(required = false) String range) {
+        List<Activity> activities = getActivitiesByRange(userId, date, range);
+        
+        // Group by 5-minute intervals
+        Map<String, Map<String, Integer>> intervals = new TreeMap<>();
+        DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
+
+        for (Activity a : activities) {
+            LocalDateTime ts = a.getTimestamp();
+            int minute = (ts.getMinute() / 5) * 5;
+            String key = String.format("%02d:%02d", ts.getHour(), minute);
+
+            intervals.computeIfAbsent(key, k -> new HashMap<>(Map.of("keys", 0, "clicks", 0)));
+            Map<String, Integer> data = intervals.get(key);
+            data.put("keys", data.get("keys") + a.getKeyStrokes());
+            data.put("clicks", data.get("clicks") + a.getMouseClicks());
+        }
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map.Entry<String, Map<String, Integer>> entry : intervals.entrySet()) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("time", entry.getKey());
+            map.put("keys", entry.getValue().get("keys"));
+            map.put("clicks", entry.getValue().get("clicks"));
+            result.add(map);
+        }
         return result;
     }
 

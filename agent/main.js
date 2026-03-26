@@ -64,7 +64,7 @@ let screenshotInterval = 300000; // Default 5 minutes
 
 // Dynamic Server URL (Local for Dev, Cloud for Prod)
 let SERVER_URL = app.isPackaged
-    ? 'http://103.181.108.248/api'
+    ? 'http://103.181.108.248:8084/api'
     : 'http://localhost:8084/api';
 
 const CONFIG_FILE = path.join(app.getPath('userData'), 'agent-config.json');

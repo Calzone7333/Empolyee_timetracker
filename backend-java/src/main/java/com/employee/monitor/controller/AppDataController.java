@@ -5,9 +5,7 @@ import com.employee.monitor.model.Team;
 import com.employee.monitor.repository.DepartmentRepository;
 import com.employee.monitor.repository.TeamRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
@@ -18,6 +16,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api")
+@CrossOrigin(origins = "*")
 public class AppDataController {
 
     @Autowired
@@ -34,6 +33,16 @@ public class AppDataController {
     @GetMapping("/departments")
     public List<Department> getDepartments() {
         return departmentRepository.findAll();
+    }
+
+    @PostMapping("/teams")
+    public Team createTeam(@RequestBody Team team) {
+        return teamRepository.save(team);
+    }
+
+    @PostMapping("/departments")
+    public Department createDepartment(@RequestBody Department department) {
+        return departmentRepository.save(department);
     }
 
     @GetMapping("/download-agent")
