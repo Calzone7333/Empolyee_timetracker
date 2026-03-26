@@ -1106,6 +1106,63 @@ function App({ dynamicData }) {
                     </div>
                   </div>
 
+                  {/* Top Applications & Top Websites */}
+                  <div className="content-grid" style={{ marginTop: '20px' }}>
+                    <div className="card">
+                      <div className="card-title">Top Applications</div>
+                      <div className="table-responsive">
+                        <table className="custom-table">
+                          <thead>
+                            <tr>
+                              <th>Application</th>
+                              <th>Duration</th>
+                              <th>Percentage</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(monitoringData?.topApps || []).slice(0, 5).map((app, i) => (
+                              <tr key={i}>
+                                <td style={{ fontSize: '12px', color: '#263238' }}>{app.name}</td>
+                                <td style={{ fontSize: '11px', fontWeight: '500' }}>{app.full}</td>
+                                <td style={{ fontSize: '11px', color: '#26a69a' }}>{app.perc}</td>
+                              </tr>
+                            ))}
+                            {(monitoringData?.topApps || []).length === 0 && (
+                              <tr><td colSpan="3" style={{ textAlign: 'center', color: '#90a4ae', padding: '10px' }}>No apps tracked yet</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="card">
+                      <div className="card-title">Top Websites</div>
+                      <div className="table-responsive">
+                        <table className="custom-table">
+                          <thead>
+                            <tr>
+                              <th>Website/Domain</th>
+                              <th>Duration</th>
+                              <th>Percentage</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(monitoringData?.topSites || []).slice(0, 5).map((site, i) => (
+                              <tr key={i}>
+                                <td style={{ fontSize: '12px', color: '#263238' }}>{site.name}</td>
+                                <td style={{ fontSize: '11px', fontWeight: '500' }}>{site.full}</td>
+                                <td style={{ fontSize: '11px', color: '#26a69a' }}>{site.perc}</td>
+                              </tr>
+                            ))}
+                            {(monitoringData?.topSites || []).length === 0 && (
+                              <tr><td colSpan="3" style={{ textAlign: 'center', color: '#90a4ae', padding: '10px' }}>No websites tracked yet</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Work vs Life Balance */}
                   <div className="card full-width" style={{ position: 'relative' }}>
                     <div className="card-title">Work vs Life Balance</div>

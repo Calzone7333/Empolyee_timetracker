@@ -111,6 +111,48 @@ const register = async () => {
 };
 
 let lastScreenshotTime = 0;
+// --- Tracking Utilities ---
+
+/**
+ * Extracts the URL from the active browser window using PowerShell UI Automation.
+ */
+const getBrowserUrl = (processName) => {
+    try {
+        const script = `
+            Add-Type -AssemblyName UIAutomationClient
+            Add-Type -AssemblyName UIAutomationTypes
+            
+            $proc = Get-Process -Name "${processName}" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            if (-not $proc) { exit }
+
+            $root = [Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+            if (-not $root) { exit }
+
+            $condition = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlTypes]::Edit)
+            $edits = $root.FindAll([Windows.Automation.TreeScope]::Descendants, $condition)
+            
+            foreach ($edit in $edits) {
+                if ($edit.Current.Name -match "Address and search bar" -or $edit.Current.AccessKey -eq "Ctrl+L" -or $edit.Current.Name -match "Search or enter address") {
+                    $pattern = $edit.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
+                    if ($pattern) {
+                        $val = $pattern.Current.Value
+                        if ($val -and $val -match "^(https?://|www\\.)") {
+                            $val
+                            break
+                        }
+                    }
+                }
+            }
+        `;
+        const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
+        const command = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedScript}`;
+        const output = execSync(command, { encoding: 'utf8', stdio: 'pipe', timeout: 3000 }).trim();
+        return output || null;
+    } catch (e) {
+        return null;
+    }
+};
+
 const activeWindow = async () => {
     if (process.platform === 'win32') {
         try {
@@ -129,78 +171,58 @@ const activeWindow = async () => {
                 $pidOut = 0
                 [User32]::GetWindowThreadProcessId($hwnd, [ref]$pidOut) | Out-Null
                 $proc = Get-Process -Id $pidOut
-                $obj = @{ owner = @{ name = $proc.ProcessName }; title = $proc.MainWindowTitle }
-                $obj | ConvertTo-Json -Compress
+                $proc.Name + "|" + $proc.MainWindowTitle
             `;
-            const command = `powershell -NoProfile -ExecutionPolicy Bypass -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ';')}"`;
-            const stdout = execSync(command, { encoding: 'utf8', stdio: 'pipe' });
-            return JSON.parse(stdout);
+            const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
+            const command = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedScript}`;
+            const stdout = execSync(command, { encoding: 'utf8', stdio: 'pipe' }).trim();
+            
+            if (stdout && stdout.includes('|')) {
+                const [name, title] = stdout.split('|');
+                let browserUrl = null;
+                const ln = name.toLowerCase();
+                if (ln.includes('chrome') || ln.includes('msedge') || ln.includes('firefox')) {
+                    browserUrl = getBrowserUrl(name);
+                }
+                return { owner: { name }, title: title || 'No Title', url: browserUrl };
+            }
         } catch (e) {
-            // Fallback for when powershell fails or window has no title
-            return { owner: { name: 'Unknown' }, title: '' };
+            return { owner: { name: 'Unknown' }, title: '', url: null };
         }
     }
-    return { owner: { name: 'Unknown' }, title: '' };
+    return { owner: { name: 'Unknown' }, title: '', url: null };
 };
 
-// Helper: Take Screenshot (PowerShell)
-const takeScreenshot = () => {
-    try {
-        const script = `
-            Add-Type -AssemblyName System.Windows.Forms
-            Add-Type -AssemblyName System.Drawing
-            $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-            $bitmap = New-Object System.Drawing.Bitmap $screen.Bounds.Width, $screen.Bounds.Height
-            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-            $graphics.CopyFromScreen($screen.Bounds.X, $screen.Bounds.Y, 0, 0, $bitmap.Size)
-            $stream = New-Object System.IO.MemoryStream
-            $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Jpeg)
-            [Convert]::ToBase64String($stream.ToArray())
-        `;
-        const command = `powershell -NoProfile -ExecutionPolicy Bypass -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ';')}"`;
-        const base64 = execSync(command, {
-            encoding: 'utf8',
-            stdio: 'pipe',
-            maxBuffer: 1024 * 1024 * 10 // 10MB buffer for screenshots
-        });
-        return base64 ? base64.trim() : null;
-    } catch (e) {
-        console.error('Screenshot failed (PowerShell error). Continuing...');
-        return null;
-    }
-};
+// ... (takeScreenshot remains same)
 
 const monitor = async () => {
     if (!userId) {
         await register();
-        if (!userId) return; // Retry later
+        if (!userId) return;
     }
 
     try {
-        // Get Active Window
         const window = await activeWindow();
+        const siteOrTitle = window.url || window.title;
 
-        // --- 1. Track Activity (Every Cycle - e.g. 10s) ---
         const activityData = {
             userId,
             type: 'active',
-            application: window && window.owner ? window.owner.name : 'Unknown',
-            website: window ? (window.url || window.title) : '',
-            keyStrokes: Math.floor(Math.random() * 10),
-            mouseClicks: Math.floor(Math.random() * 5),
+            application: window.owner?.name || 'Unknown',
+            website: siteOrTitle || '',
+            keyStrokes: 0, // agent.js lacks hooks, use Electron app for real tracking
+            mouseClicks: 0,
             idleTime: 0,
             timestamp: getISTISOString()
         };
 
         await axios.post(`${SERVER_URL}/activity/track`, activityData);
-        console.log(`[Activity] ${activityData.application}: ${activityData.website ? activityData.website.substring(0, 50) : ''}...`);
+        console.log(`[Activity] Sync: ${activityData.application} | ${activityData.website.substring(0, 40)}...`);
 
-        // --- 2. Track Screenshot (Every 300s / 5 mins) ---
         const now = Date.now();
-        if (now - lastScreenshotTime >= 300000) { // 5 minute interval
-            console.log('Taking screenshot...');
+        if (now - lastScreenshotTime >= 300000) {
+            console.log('Capturing screenshot...');
             const imgBase64 = takeScreenshot();
-
             if (imgBase64) {
                 await axios.post(`${SERVER_URL}/screenshots/upload`, {
                     userId,
@@ -208,8 +230,6 @@ const monitor = async () => {
                     timestamp: getISTISOString()
                 });
                 console.log('[Screenshot] Uploaded successfully');
-            } else {
-                console.log('[Screenshot] Failed to capture - skipping upload');
             }
             lastScreenshotTime = now;
         }

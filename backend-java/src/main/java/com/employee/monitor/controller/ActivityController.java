@@ -27,23 +27,25 @@ public class ActivityController {
 
         // --- Data Cleanup & Fallback ---
         String app = activity.getApplication();
-        String title = activity.getWebsite();
+        String siteOrTitle = activity.getWebsite();
 
+        // 1. If App is unknown, try to determine from title/site
         if (app == null || "Unknown".equalsIgnoreCase(app) || app.isEmpty()) {
-            if (title != null && !title.isEmpty() && !"Unknown".equalsIgnoreCase(title)) {
-                // Try to extract app name from title (e.g. "Google Search - Google Chrome" ->
-                // "Google Chrome")
-                if (title.contains(" - ")) {
-                    app = title.substring(title.lastIndexOf(" - ") + 3).trim();
+            if (siteOrTitle != null && !siteOrTitle.isEmpty() && !"Unknown".equalsIgnoreCase(siteOrTitle)) {
+                if (siteOrTitle.contains("://")) {
+                     // If it's a URL, the app is likely a browser
+                     app = "Browser";
+                } else if (siteOrTitle.contains(" - ")) {
+                    app = siteOrTitle.substring(siteOrTitle.lastIndexOf(" - ") + 3).trim();
                 } else {
-                    app = title;
+                    app = siteOrTitle;
                 }
                 activity.setApplication(app);
             }
         }
 
-        // Clean up app name paths and extensions
-        if (app != null && !app.isEmpty()) {
+        // 2. Clean up app name paths and extensions
+        if (app != null && !app.isEmpty() && !app.contains("://")) {
             if (app.contains("\\"))
                 app = app.substring(app.lastIndexOf("\\") + 1);
             if (app.toLowerCase().endsWith(".exe"))
@@ -53,7 +55,7 @@ public class ActivityController {
             activity.setApplication(app);
         }
 
-        // Determine if this should be 'idle' type if idleTime is significant
+        // 3. Determine if this should be 'idle' type if idleTime is significant (120s+)
         if (activity.getIdleTime() != null && activity.getIdleTime() > 120) {
             activity.setType("idle");
         }
@@ -294,13 +296,27 @@ public class ActivityController {
                     try {
                         String temp = site.split("://")[1];
                         displaySite = temp.split("/")[0];
+                        // Handle localized names or subdomains
+                        if (displaySite.startsWith("www.")) displaySite = displaySite.substring(4);
                     } catch (Exception e) {
                     }
                 } else if (site.contains(" - ")) {
+                    // Window title like "Home - Google Chrome"
                     String[] parts = site.split(" - ");
-                    displaySite = parts[parts.length - 1];
+                    // Usually the first part is the app/site name
+                    displaySite = parts[0].trim();
+                    // If the first part is just a generic title, the last part might be the browser
+                    if (parts.length > 1) {
+                         String lastPart = parts[parts.length - 1].toLowerCase();
+                         if (lastPart.contains("chrome") || lastPart.contains("edge") || lastPart.contains("firefox") || lastPart.contains("browser")) {
+                             // Use the first part as the site name (e.g. "GitHub" from "GitHub - Google Chrome")
+                             displaySite = parts[0].trim();
+                         }
+                    }
                 }
 
+                if (displaySite.length() > 50) displaySite = displaySite.substring(0, 47) + "...";
+                
                 siteTotalCount.put(displaySite, siteTotalCount.getOrDefault(displaySite, 0) + 1);
                 if ("active".equals(a.getType())) {
                     siteActiveCount.put(displaySite, siteActiveCount.getOrDefault(displaySite, 0) + 1);

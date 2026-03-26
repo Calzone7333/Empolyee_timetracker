@@ -145,23 +145,109 @@ const register = async () => {
 };
 
 // --- Tracking Utilities ---
-let getActiveWindow = null;
+let getActiveWinModule = null;
+
+/**
+ * Extracts the URL from the active browser window using PowerShell UI Automation.
+ * This works for Chrome, Edge, and Firefox on Windows.
+ * Optimized with multiple fallback methods for robust detection.
+ */
+const getBrowserUrl = (processName) => {
+    try {
+        const script = `
+            Add-Type -AssemblyName UIAutomationClient
+            Add-Type -AssemblyName UIAutomationTypes
+            
+            $proc = Get-Process -Name "${processName}" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            if (-not $proc) { exit }
+
+            $root = [Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+            if (-not $root) { exit }
+
+            # Find all Edit controls - usually the address bar is one of them
+            $condition = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlTypes]::Edit)
+            $edits = $root.FindAll([Windows.Automation.TreeScope]::Descendants, $condition)
+            
+            foreach ($edit in $edits) {
+                try {
+                    $val = ""
+                    # Try ValuePattern first
+                    if ($edit.GetSupportedPatterns() -contains [Windows.Automation.ValuePattern]::Pattern) {
+                        $pattern = $edit.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
+                        $val = $pattern.Current.Value
+                    }
+                    
+                    # If empty, try the name or some other heuristcs
+                    if (-not $val) {
+                        $val = $edit.Current.Name
+                    }
+
+                    if ($val -and ($val -match "^(https?://|www\\.)" -or $val -match "^[a-z0-9.-]+\\.(com|org|net|edu|in|gov|io|co|me|ai)/")) {
+                        if ($val -notmatch "^https?://") { $val = "https://" + $val }
+                        $val
+                        exit
+                    }
+                } catch { continue }
+            }
+
+            # FALLBACK: Special handling for Chrome/Edge address bar specific names
+            $names = @("Address and search bar", "Search or enter web address", "Search or enter address", "Address Bar")
+            foreach ($n in $names) {
+                $cond = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::NameProperty, $n)
+                $element = $root.FindFirst([Windows.Automation.TreeScope]::Descendants, $cond)
+                if ($element) {
+                    if ($element.GetSupportedPatterns() -contains [Windows.Automation.ValuePattern]::Pattern) {
+                         $pattern = $element.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
+                         if ($pattern.Current.Value) { $pattern.Current.Value; exit }
+                    }
+                }
+            }
+        `;
+        const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
+        const command = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedScript}`;
+        const output = execSync(command, { encoding: 'utf8', stdio: 'pipe', timeout: 4000 }).trim();
+        return output || null;
+    } catch (e) {
+        return null;
+    }
+};
+
 const activeWindow = async () => {
     try {
-        if (!getActiveWindow) {
+        if (!getActiveWinModule) {
             const mod = await import('active-win');
-            getActiveWindow = mod.activeWindow;
+            getActiveWinModule = mod;
         }
-        const win = await getActiveWindow();
-        if (win && win.owner && win.owner.name && win.owner.name !== 'Unknown') {
-            return win;
+        const win = await getActiveWinModule.activeWindow();
+        
+        if (win && win.owner && win.owner.name) {
+            const processName = win.owner.name.toLowerCase();
+            
+            // Comprehensive browser list
+            let browserUrl = null;
+            const isBrowser = (processName.includes('chrome') || 
+                               processName.includes('msedge') || 
+                               processName.includes('firefox') || 
+                               processName.includes('brave') ||
+                               processName.includes('opera') ||
+                               processName.includes('vivaldi'));
+
+            if (isBrowser) {
+                browserUrl = getBrowserUrl(win.owner.name);
+            }
+
+            return {
+                title: win.title || 'Unknown',
+                owner: { name: win.owner.name || 'Unknown' },
+                url: browserUrl,
+                path: win.owner.path
+            };
         }
     } catch (e) {
-        // Fallback to powershell
+        // Fallback to powershell for process and title
     }
 
     try {
-        // PowerShell Fallback for Windows
         const script = `
             Add-Type @"
               using System;
@@ -183,16 +269,27 @@ const activeWindow = async () => {
         `;
         const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
         const command = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedScript}`;
-        const output = execSync(command, { encoding: 'utf8', stdio: 'pipe' }).trim();
+        const output = execSync(command, { encoding: 'utf8', stdio: 'pipe', timeout: 2000 }).trim();
         if (output && output.includes('|')) {
             const [name, title] = output.split('|');
-            return { title: title || 'No Title', owner: { name: name || 'Unknown' } };
+            
+            let browserUrl = null;
+            const ln = name.toLowerCase();
+            if (ln.includes('chrome') || ln.includes('msedge') || ln.includes('firefox') || ln.includes('brave')) {
+                browserUrl = getBrowserUrl(name);
+            }
+
+            return { 
+                title: title || 'No Title', 
+                owner: { name: name || 'Unknown' },
+                url: browserUrl
+            };
         }
     } catch (psError) {
         // console.error('[AGENT] PS fallback failed:', psError.message);
     }
 
-    return { title: 'Unknown', owner: { name: 'Unknown' } };
+    return { title: 'Unknown', owner: { name: 'Unknown' }, url: null };
 };
 
 const takeScreenshot = () => {
@@ -234,18 +331,23 @@ const monitor = async () => {
         const now = Date.now();
         const idleSecs = Math.floor((now - lastActivityTime) / 1000);
 
-        console.log(`[MONITOR] Active: ${activeWin.owner?.name} | Title: ${activeWin.title} | Idle: ${idleSecs}s`);
+        // Debug log
+        console.log(`[MONITOR] App: ${activeWin.owner?.name} | URL: ${activeWin.url || 'N/A'} | Idle: ${idleSecs}s`);
 
         const keys = currentKeyStrokes;
         const clicks = currentMouseClicks;
         currentKeyStrokes = 0;
         currentMouseClicks = 0;
 
+        // Determine the "website" or "detailed activity"
+        // If it's a browser and we have a URL, use that. Otherwise use title.
+        const siteOrTitle = activeWin.url || activeWin.title;
+
         const activeData = {
             userId: Number(userId),
             type: idleSecs > 120 ? 'idle' : 'active',
-            application: activeWin && activeWin.owner && activeWin.owner.name !== 'Unknown' ? String(activeWin.owner.name) : (activeWin.title && activeWin.title !== 'Unknown' ? 'Browser/App' : 'Unknown'),
-            website: activeWin ? String(activeWin.title) : '',
+            application: activeWin.owner?.name || 'Unknown',
+            website: siteOrTitle || '',
             keyStrokes: Number(keys),
             mouseClicks: Number(clicks),
             idleTime: Number(idleSecs),
@@ -253,20 +355,21 @@ const monitor = async () => {
         };
 
         axios.post(`${SERVER_URL}/activity/track`, activeData)
-            .then(() => console.log(`[TRACKER] Sync success: ${activeData.application} | ${activeData.type}`))
+            .then(() => console.log(`[TRACKER] Sync: ${activeData.application} | ${activeData.type} | Keys: ${activeData.keyStrokes}`))
             .catch(err => {
                 const errorDetail = err.response ? JSON.stringify(err.response.data) : err.message;
                 console.error(`[TRACKER] Sync failed: ${errorDetail}`);
             });
 
         if (now - lastScreenshotTime >= screenshotInterval) {
+            console.log('[MONITOR] Capturing screenshot...');
             const imgBase64 = takeScreenshot();
             if (imgBase64) {
                 axios.post(`${SERVER_URL}/screenshots/upload`, {
                     userId,
                     imageBase64: imgBase64,
                     timestamp: getISTISOString()
-                }).catch(() => null);
+                }).catch(e => console.error('[MONITOR] Screenshot upload failed:', e.message));
             }
             lastScreenshotTime = now;
         }
