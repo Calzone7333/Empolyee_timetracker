@@ -323,42 +323,47 @@ const takeScreenshot = () => {
     }
 };
 
+// Monitoring loop
 const monitor = async () => {
     if (!isTracking || !userId) return;
 
     try {
-        const activeWin = await activeWindow();
         const now = Date.now();
+        const activeWin = await activeWindow();
         const idleSecs = Math.floor((now - lastActivityTime) / 1000);
 
-        // Debug log
-        console.log(`[MONITOR] App: ${activeWin.owner?.name} | URL: ${activeWin.url || 'N/A'} | Idle: ${idleSecs}s`);
+        // More robust data construction
+        const appName = activeWin?.owner?.name || 'Unknown';
+        const pageTitle = activeWin?.title || 'Unknown';
+        const url = activeWin?.url || null;
+
+        // Dashboard info
+        console.log(`[MONITOR] App: ${appName} | URL: ${url || 'None'} | Idle: ${idleSecs}s`);
 
         const keys = currentKeyStrokes;
         const clicks = currentMouseClicks;
         currentKeyStrokes = 0;
         currentMouseClicks = 0;
 
-        // Determine the "website" or "detailed activity"
-        // If it's a browser and we have a URL, use that. Otherwise use title.
-        const siteOrTitle = activeWin.url || activeWin.title;
+        // For "Websites Visited", we MUST have the URL. 
+        // If not, we send the Title, but the backend handles it better now.
+        const siteOrTitle = url || pageTitle;
 
         const activeData = {
             userId: Number(userId),
             type: idleSecs > 120 ? 'idle' : 'active',
-            application: activeWin.owner?.name || 'Unknown',
-            website: siteOrTitle || '',
+            application: String(appName),
+            website: String(siteOrTitle),
             keyStrokes: Number(keys),
             mouseClicks: Number(clicks),
             idleTime: Number(idleSecs),
             timestamp: getISTISOString()
         };
 
-        axios.post(`${SERVER_URL}/activity/track`, activeData)
-            .then(() => console.log(`[TRACKER] Sync: ${activeData.application} | ${activeData.type} | Keys: ${activeData.keyStrokes}`))
+        axios.post(`${SERVER_URL}/activity/track`, activeData, { timeout: 5000 })
+            .then(() => console.log(`[TRACKER] Sync Success: ${activeData.application}`))
             .catch(err => {
-                const errorDetail = err.response ? JSON.stringify(err.response.data) : err.message;
-                console.error(`[TRACKER] Sync failed: ${errorDetail}`);
+                 console.error(`[TRACKER] Sync Error at ${SERVER_URL}: ${err.message}`);
             });
 
         if (now - lastScreenshotTime >= screenshotInterval) {
@@ -369,7 +374,7 @@ const monitor = async () => {
                     userId,
                     imageBase64: imgBase64,
                     timestamp: getISTISOString()
-                }).catch(e => console.error('[MONITOR] Screenshot upload failed:', e.message));
+                }).catch(e => console.error('[MONITOR] Screenshot upload failed'));
             }
             lastScreenshotTime = now;
         }
@@ -381,7 +386,22 @@ const monitor = async () => {
 let currentKeyStrokes = 0;
 let currentMouseClicks = 0;
 
-// --- Handlers ---
+const stopEverything = () => {
+    isTracking = false;
+    if (trackingInterval) {
+        clearInterval(trackingInterval);
+        trackingInterval = null;
+    }
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+    try {
+        uIOhook.stop();
+    } catch (e) {
+        // Ignore if already stopped
+    }
+};
 app.whenReady().then(async () => {
     loadConfig();
     await register();
@@ -422,7 +442,7 @@ app.whenReady().then(async () => {
 ipcMain.handle('get-status', () => ({
     isTracking, trackingSeconds, checkInTime: checkInTime ? getISTISOString() : null,
     computerName: os.hostname(),
-    userName: config.userName || os.userInfo().username || 'Unknown',
+    userName: config.userName || os.userInfo()?.username || 'Unknown',
     userId: userId || null,
     generatedPassword: config.generatedPassword || null,
     serverUrl: SERVER_URL
@@ -450,23 +470,6 @@ ipcMain.handle('login', async (event, credentials) => {
         return { success: false, message: 'Server connection error' };
     }
 });
-
-const stopEverything = () => {
-    isTracking = false;
-    if (trackingInterval) {
-        clearInterval(trackingInterval);
-        trackingInterval = null;
-    }
-    if (timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null;
-    }
-    try {
-        uIOhook.stop();
-    } catch (e) {
-        // Ignore if already stopped
-    }
-};
 
 ipcMain.handle('logout', async () => {
     console.log('[LOGOUT] User logging out...');
