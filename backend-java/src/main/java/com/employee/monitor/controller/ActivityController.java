@@ -5,12 +5,15 @@ import com.employee.monitor.repository.ActivityRepository;
 import com.employee.monitor.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/api/activity")
+@CrossOrigin(origins = "*")
 public class ActivityController {
 
     @Autowired
@@ -19,132 +22,47 @@ public class ActivityController {
     @Autowired
     private UserRepository userRepository;
 
-    @PostMapping("/activity/track")
-    public Map<String, Object> track(@RequestBody Activity activity) {
-        if (activity.getTimestamp() == null) {
-            activity.setTimestamp(LocalDateTime.now());
-        }
-
-        // --- Data Cleanup & Fallback ---
-        String app = activity.getApplication();
-        String siteOrTitle = activity.getWebsite();
-
-        // 1. If App is unknown, try to determine from title/site
-        if (app == null || "Unknown".equalsIgnoreCase(app) || app.isEmpty()) {
-            if (siteOrTitle != null && !siteOrTitle.isEmpty() && !"Unknown".equalsIgnoreCase(siteOrTitle)) {
-                if (siteOrTitle.contains("://")) {
-                     // If it's a URL, the app is likely a browser
-                     app = "Browser";
-                } else if (siteOrTitle.contains(" - ")) {
-                    app = siteOrTitle.substring(siteOrTitle.lastIndexOf(" - ") + 3).trim();
-                } else {
-                    app = siteOrTitle;
-                }
-                activity.setApplication(app);
+    @PostMapping("/track")
+    public Map<String, Object> track(@RequestBody Map<String, Object> data) {
+        try {
+            Long userId = Long.valueOf(data.get("userId").toString());
+            Activity activity = new Activity();
+            activity.setUserId(userId);
+            activity.setType(data.get("type").toString());
+            activity.setApplication(data.get("application").toString());
+            activity.setWebsite(data.get("website").toString());
+            activity.setKeyStrokes(Integer.parseInt(data.get("keyStrokes").toString()));
+            activity.setMouseClicks(Integer.parseInt(data.get("mouseClicks").toString()));
+            activity.setIdleTime(Integer.parseInt(data.get("idleTime").toString()));
+            
+            if (data.containsKey("timestamp")) {
+                activity.setTimestamp(LocalDateTime.parse(data.get("timestamp").toString()));
+            } else {
+                activity.setTimestamp(LocalDateTime.now());
             }
+
+            activityRepository.save(activity);
+            
+            // Update user last active
+            userRepository.findById(userId).ifPresent(u -> {
+                u.setLastActive(LocalDateTime.now());
+                userRepository.save(u);
+            });
+
+            return Map.of("success", true);
+        } catch (Exception e) {
+            return Map.of("success", false, "message", e.getMessage());
         }
-
-        // 2. Clean up app name paths and extensions
-        if (app != null && !app.isEmpty() && !app.contains("://")) {
-            if (app.contains("\\"))
-                app = app.substring(app.lastIndexOf("\\") + 1);
-            if (app.toLowerCase().endsWith(".exe"))
-                app = app.substring(0, app.length() - 4);
-            if (app.length() > 0)
-                app = app.substring(0, 1).toUpperCase() + app.substring(1);
-            activity.setApplication(app);
-        }
-
-        // 3. Determine if this should be 'idle' type if idleTime is significant (120s+)
-        if (activity.getIdleTime() != null && activity.getIdleTime() > 120) {
-            activity.setType("idle");
-        }
-
-        Activity saved = activityRepository.save(activity);
-
-        userRepository.findById(activity.getUserId()).ifPresent(user -> {
-            user.setLastActive(LocalDateTime.now());
-            userRepository.save(user);
-        });
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("activity", saved);
-        return response;
     }
 
-    @GetMapping("/activity/{userId}")
+    @GetMapping("/{userId}")
     public List<Activity> getActivities(@PathVariable Long userId,
-            @RequestParam(required = false) String date,
-            @RequestParam(required = false) String range) {
-        LocalDateTime start;
-        LocalDateTime end;
-
+            @RequestParam(required = false) String date) {
         if (date != null) {
             LocalDate localDate = LocalDate.parse(date);
-            if ("week".equalsIgnoreCase(range)) {
-                start = localDate.minusDays(7).atStartOfDay();
-                end = localDate.plusDays(1).atStartOfDay();
-            } else if ("month".equalsIgnoreCase(range)) {
-                start = localDate.withDayOfMonth(1).atStartOfDay();
-                end = localDate.plusDays(1).atStartOfDay();
-            } else {
-                start = localDate.atStartOfDay();
-                end = start.plusDays(1);
-            }
-            return activityRepository.findByUserIdAndTimestampBetween(userId, start, end);
+            return activityRepository.findByUserIdAndTimestampBetween(userId, localDate.atStartOfDay(), localDate.plusDays(1).atStartOfDay());
         }
         return activityRepository.findByUserId(userId);
-    }
-
-    @GetMapping("/activity-levels/{userId}")
-    public List<Map<String, Object>> getActivityLevels(@PathVariable Long userId,
-            @RequestParam(required = false) String date,
-            @RequestParam(required = false) String range) {
-        List<Activity> activities;
-        if (date != null) {
-            LocalDate localDate = LocalDate.parse(date);
-            LocalDateTime start;
-            LocalDateTime end;
-            if ("week".equalsIgnoreCase(range)) {
-                start = localDate.minusDays(7).atStartOfDay();
-                end = localDate.plusDays(1).atStartOfDay();
-            } else if ("month".equalsIgnoreCase(range)) {
-                start = localDate.withDayOfMonth(1).atStartOfDay();
-                end = localDate.plusDays(1).atStartOfDay();
-            } else {
-                start = localDate.atStartOfDay();
-                end = start.plusDays(1);
-            }
-            activities = activityRepository.findByUserIdAndTimestampBetween(userId, start, end);
-        } else {
-            activities = activityRepository.findByUserId(userId);
-        }
-
-        Map<String, Map<String, Integer>> groupedMap = new LinkedHashMap<>();
-
-        for (Activity a : activities) {
-            int hour = a.getTimestamp().getHour();
-            int min = a.getTimestamp().getMinute();
-            int minGroup = (min / 10) * 10;
-            String timeKey = String.format("%02d:%02d", hour, minGroup);
-
-            groupedMap.putIfAbsent(timeKey, new HashMap<>());
-            Map<String, Integer> stats = groupedMap.get(timeKey);
-            stats.put("keys", stats.getOrDefault("keys", 0) + (a.getKeyStrokes() != null ? a.getKeyStrokes() : 0));
-            stats.put("clicks",
-                    stats.getOrDefault("clicks", 0) + (a.getMouseClicks() != null ? a.getMouseClicks() : 0));
-        }
-
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Map.Entry<String, Map<String, Integer>> entry : groupedMap.entrySet()) {
-            Map<String, Object> map = new HashMap<>();
-            map.put("time", entry.getKey());
-            map.put("keys", entry.getValue().get("keys"));
-            map.put("clicks", entry.getValue().get("clicks"));
-            result.add(map);
-        }
-        return result;
     }
 
     @GetMapping("/applications/{userId}")
@@ -153,8 +71,8 @@ public class ActivityController {
             @RequestParam(required = false) String range) {
         List<Activity> activities = getActivitiesByRange(userId, date, range);
         
-        Map<String, Integer> appActiveUsage = new HashMap<>(); // pings where app was active
-        Map<String, Integer> appTotalUsage = new HashMap<>(); // all pings for this app
+        Map<String, Integer> appActiveUsage = new HashMap<>();
+        Map<String, Integer> appTotalUsage = new HashMap<>();
         Map<String, String> appToRecentTitle = new HashMap<>();
 
         for (Activity a : activities) {
@@ -163,7 +81,7 @@ public class ActivityController {
                 appName = "System/Other";
             }
 
-            // Clean up name (extract file name from path)
+            // Clean up name
             if (appName.contains("\\")) appName = appName.substring(appName.lastIndexOf("\\") + 1);
             if (appName.toLowerCase().endsWith(".exe")) appName = appName.substring(0, appName.length() - 4);
             if (appName.length() > 0) appName = appName.substring(0, 1).toUpperCase() + appName.substring(1);
@@ -213,7 +131,15 @@ public class ActivityController {
 
         for (Activity a : activities) {
             String site = a.getWebsite();
+            String appName = (a.getApplication() != null) ? a.getApplication().toLowerCase() : "";
+            boolean isBrowser = appName.contains("chrome") || appName.contains("edge") || 
+                              appName.contains("firefox") || appName.contains("brave") || 
+                              appName.contains("opera") || appName.contains("vivaldi");
+
             if (site == null || site.isEmpty() || "Unknown".equalsIgnoreCase(site)) continue;
+
+            // Only count as a website if it's from a browser OR has a protocol/dot
+            if (!isBrowser && !site.contains("://") && !site.contains("www.") && !site.contains(".")) continue;
 
             String displaySite = site;
             if (site.contains("://")) {
@@ -265,8 +191,6 @@ public class ActivityController {
         result.sort((a, b) -> Double.compare((Double) b.get("percVal"), (Double) a.get("percVal")));
         return result;
     }
-
-    // --- Private Helper Methods ---
 
     private List<Activity> getActivitiesByRange(Long userId, String date, String range) {
         if (date == null) return activityRepository.findByUserId(userId);
